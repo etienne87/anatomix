@@ -30,10 +30,10 @@ from anatomix.model.network import Unet
 def load_model(pretrained_ckpt, n_classes, device):
     """
     Load and configure a U-Net model for semantic segmentation.
-    
+
     This function creates a U-Net model and optionally loads pretrained weights.
     It adds a final output layer for the specified number of segmentation classes.
-    
+
     Parameters
     ----------
     pretrained_ckpt : str
@@ -42,7 +42,7 @@ def load_model(pretrained_ckpt, n_classes, device):
         Number of segmentation classes (excluding background)
     device : torch.device
         Device to load the model on ('cuda' or 'cpu')
-        
+
     Returns
     -------
     new_model : torch.nn.Sequential
@@ -50,19 +50,19 @@ def load_model(pretrained_ckpt, n_classes, device):
     """
     # Initialize base U-Net model
     model = Unet(3, 1, 16, 4, ngf=16).to(device)
-    
+
     if pretrained_ckpt == 'scratch':
         print("Training from random initialization.")
         pass
     else:
         print("Transferring from proposed pretrained network.")
         model.load_state_dict(torch.load(pretrained_ckpt))
-        
+
     # Add final classification layer
     fin_layer = UnetOutBlock(3, 16, n_classes + 1, False).to(device)
     new_model = torch.nn.Sequential(model, fin_layer)
     new_model.to(device)
-    
+
     return new_model
 
 
@@ -72,7 +72,7 @@ def load_model(pretrained_ckpt, n_classes, device):
 def save_ckp(state, checkpoint_dir):
     """
     Save model checkpoint to disk.
-    
+
     Parameters
     ----------
     state : dict
@@ -86,9 +86,9 @@ def save_ckp(state, checkpoint_dir):
 def worker_init_fn(worker_id):
     """
     Initialize worker for data loading.
-    
+
     Sets random seed for data augmentation transforms in worker processes.
-    
+
     Parameters
     ----------
     worker_id : int
@@ -110,7 +110,7 @@ def get_train_transforms(crop_size):
     """
     Get training data transforms based on the specified dataset.
 
-    This function returns a composition of data transformation 
+    This function returns a composition of data transformation
     functions for training a model. These are just base augmentations.
     For actual augmentations per dataset, refer to App. B of the submission.
     This will be made dataset-specific for public release.
@@ -123,10 +123,10 @@ def get_train_transforms(crop_size):
     Returns
     -------
     train_transforms : Compose
-        A composed transform object containing the specified 
+        A composed transform object containing the specified
         transformations for the training dataset.
     """
-    
+
     train_transforms = Compose(
         [
             LoadImaged(keys=["image", "label"]),
@@ -187,11 +187,11 @@ def data_handler(
 ):
     """
     Handle data loading and preparation for few-shot segmentation training.
-    
+
     This function loads training and validation image/segmentation pairs from the
     specified directory structure, randomly selects a subset for few-shot training,
     and repeats the training data as needed to match the desired iterations per epoch.
-    
+
     Parameters
     ----------
     basedir : str
@@ -204,7 +204,7 @@ def data_handler(
         Batch size for training. Default is 3
     seed : int, optional
         Random seed for reproducible data selection. Default is 12345
-        
+
     Returns
     -------
     tuple
@@ -225,13 +225,21 @@ def data_handler(
     # Verify we have matching pairs of images and segmentations
     assert len(trimages) > 0
     assert len(trimages) == len(trsegs)
-    
+
     # Randomly select subset of training data for few-shot learning
     trimages = np.random.RandomState(seed=seed).permutation(trimages).tolist()
     trsegs = np.random.RandomState(seed=seed).permutation(trsegs).tolist()
+
+    # Select val from the rest
+    vaimages = trimages[finetuning_amount:]
+    vasegs = trsegs[finetuning_amount:]
+
+    # Select train from the beginning
     trimages = trimages[:finetuning_amount]
     trsegs = trsegs[:finetuning_amount]
 
+
+    # I don't have any validation data for now, so commenting this out
     # Calculate repeats needed to achieve desired iterations per epoch
     samples_per_epoch = iters_per_epoch * batch_size
     repeats = max(1, samples_per_epoch // finetuning_amount)
@@ -240,16 +248,16 @@ def data_handler(
     trimages = trimages * repeats
     trsegs = trsegs * repeats
 
-    # Load validation data paths
-    vaimages = sorted(
-        glob(
-            os.path.join(basedir, './imagesVal/*.nii.gz'),
-        )
-    )
-    vasegs = sorted(
-        glob(
-            os.path.join(basedir, './labelsVal/*.nii.gz'),
-        )
-    )
-    
+    # # Load validation data paths
+    # vaimages = sorted(
+    #     glob(
+    #         os.path.join(basedir, './imagesVal/*.nii.gz'),
+    #     )
+    # )
+    # vasegs = sorted(
+    #     glob(
+    #         os.path.join(basedir, './labelsVal/*.nii.gz'),
+    #     )
+    # )
+
     return trimages, trsegs, vaimages, vasegs

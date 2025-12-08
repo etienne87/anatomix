@@ -50,7 +50,7 @@ def main(opt):
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(vaimages, vasegs)
     ]
-    
+
     # define transforms for image and segmentation
     train_transforms = get_train_transforms(opt.crop_size)
     val_transforms = get_val_transforms()
@@ -74,7 +74,7 @@ def main(opt):
     val_ds = monai.data.Dataset(data=val_files, transform=val_transforms)
     val_loader = DataLoader(
         val_ds,
-        batch_size=1, 
+        batch_size=1,
         num_workers=0,
         collate_fn=list_data_collate,
         worker_init_fn=worker_init_fn,
@@ -87,13 +87,13 @@ def main(opt):
 
     # Create UNet, DiceLoss and Adam optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     new_model = load_model(
         opt.pretrained_ckpt,
         opt.n_classes,
         device,
     )
-    
+
     # Create Dice + CE loss function
     loss_function = monai.losses.DiceCELoss(
         softmax=True, to_onehot_y=True, include_background=False,
@@ -129,11 +129,11 @@ def main(opt):
         step = 0
         for batch_data in train_loader:
             step += 1
-            inputs = batch_data["image"].to(device) 
+            inputs = batch_data["image"].to(device)
             labels = batch_data["label"].to(device)
 
             optimizer.zero_grad()
-            
+
             outputs = new_model(inputs)
             loss = loss_function(outputs, labels)
             loss.backward()
@@ -182,7 +182,7 @@ def main(opt):
                 val_loss = 0.0
                 valstep = 0
                 for val_data in val_loader:
-                    val_images = val_data["image"].to(device) 
+                    val_images = val_data["image"].to(device)
                     val_labels = val_data["label"].to(device)
                     roi_size = (opt.crop_size, opt.crop_size, opt.crop_size)
                     sw_batch_size = 4
@@ -216,7 +216,7 @@ def main(opt):
                 writer.add_scalar(
                     "val_loss_mean_dice", val_loss.item(), epoch + 1
                 )
-                # plot the last model output as GIF image in TensorBoard 
+                # plot the last model output as GIF image in TensorBoard
                 # with the corresponding image and label
                 plot_2d_or_3d_image(
                     val_images, epoch + 1, writer, index=0, tag="Val/image",
@@ -248,7 +248,7 @@ def main(opt):
                     opt.exp_name, epoch+1
                 ),
             )
-                
+
     writer.close()
 
 
@@ -294,7 +294,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--pretrained_ckpt',
         type=str,
-        default='../../model-weights/anatomix.pth',
+        default='/home/eperot/oneview_mr/anatomix/model-weights/anatomix.pth',
         help="Default points to model weights path. "
         "Set to 'scratch' for random initialization",
     )
