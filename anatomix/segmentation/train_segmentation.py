@@ -268,7 +268,7 @@ if __name__ == "__main__":
         help="Number of training batches per epoch",
     )
     parser.add_argument(
-        '--n_classes', type=int, default=4,
+        '--n_classes', type=int, default=15,
         help="Number of classes to segment. Does not include background class",
     )
     parser.add_argument(

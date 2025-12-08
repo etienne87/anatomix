@@ -1,6 +1,8 @@
 import torch
 import os
 import numpy as np
+import re
+
 from monai.networks.blocks import UnetOutBlock
 from glob import glob
 
@@ -18,6 +20,7 @@ from monai.transforms import (
     RandAffined,
     EnsureTyped,
     EnsureChannelFirstd,
+    DivisiblePadd
 )
 
 from anatomix.model.network import Unet
@@ -167,11 +170,18 @@ def get_train_transforms(crop_size):
 
 
 def get_val_transforms():
+    crop_size = 256
     val_transforms = Compose(
         [
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             EnsureTyped(keys=["image", "label"]),
+            # DivisiblePadd(keys=["image", "label"], k=32, mode=('constant'), method= ("symmetric")),
+            RandSpatialCropd(
+                keys=["image", "label"],
+                roi_size=[crop_size, crop_size, crop_size],
+                random_size=False,
+            ),
             ScaleIntensityd(keys="image"),
         ]
     )
@@ -211,16 +221,24 @@ def data_handler(
         Lists of file paths: (training images, training segmentations,
                              validation images, validation segmentations)
     """
+
+    def natural_sort_key(s):
+        """Sort strings containing numbers in natural order"""
+        return [int(text) if text.isdigit() else text.lower()
+                for text in re.split('([0-9]+)', s)]
+
     # Load all training image and segmentation paths
     trimages = sorted(
         glob(
             os.path.join(basedir, './imagesTr/*.nii.gz'),
-        )
+        ),
+        key=natural_sort_key
     )
     trsegs = sorted(
         glob(
             os.path.join(basedir, './labelsTr/*.nii.gz'),
-        )
+        ),
+        key=natural_sort_key
     )
     # Verify we have matching pairs of images and segmentations
     assert len(trimages) > 0
@@ -229,6 +247,15 @@ def data_handler(
     # Randomly select subset of training data for few-shot learning
     trimages = np.random.RandomState(seed=seed).permutation(trimages).tolist()
     trsegs = np.random.RandomState(seed=seed).permutation(trsegs).tolist()
+
+    # dumb check for file mismatches
+    # import tqdm
+    # for img, lab in tqdm.tqdm(zip(trimages, trsegs), total=len(trimages)):
+    #     basename1 = os.path.basename(img).split('_0000.nii.gz')[0]
+    #     basename2 = os.path.basename(lab).split('.nii.gz')[0]
+    #     if basename1 != basename2:
+    #         print(f"Mismatch: {basename1} vs {basename2}")
+    #         continue
 
     # Select val from the rest
     vaimages = trimages[finetuning_amount:]
