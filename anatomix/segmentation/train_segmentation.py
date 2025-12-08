@@ -13,6 +13,8 @@ from monai.data import list_data_collate
 from monai.inferers import sliding_window_inference
 from monai.visualize import plot_2d_or_3d_image
 
+from tqdm import tqdm
+
 from anatomix.segmentation.segmentation_utils import (
     load_model,
     save_ckp,
@@ -24,6 +26,8 @@ from anatomix.segmentation.segmentation_utils import (
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+
+MAX_VAL_BATCHES = 10
 
 def main(opt):
     os.makedirs(
@@ -56,6 +60,7 @@ def main(opt):
     val_transforms = get_val_transforms()
 
     # create a training data loader
+    # transform to Dataset if debug mode
     train_ds = monai.data.CacheDataset(
         data=train_files, transform=train_transforms,
         cache_rate=1.0, num_workers=8,
@@ -92,6 +97,7 @@ def main(opt):
         opt.pretrained_ckpt,
         opt.n_classes,
         device,
+        freeze_backbone=True
     )
 
     # Create Dice + CE loss function
@@ -127,7 +133,7 @@ def main(opt):
         new_model.train()
         epoch_loss = 0
         step = 0
-        for batch_data in train_loader:
+        for batch_data in tqdm(train_loader, total=len(train_loader)):
             step += 1
             inputs = batch_data["image"].to(device)
             labels = batch_data["label"].to(device)
@@ -150,27 +156,27 @@ def main(opt):
         scheduler.step()
 
         # Plotting:
-        with torch.no_grad():
-            if (epoch + 1) % val_interval == 0:
-                print('got to image plotter')
-                plot_2d_or_3d_image(
-                    inputs, epoch + 1, writer, index=0, tag="train/image",
-                )
-                plot_2d_or_3d_image(
-                    labels/(opt.n_classes + 1.),
-                    epoch + 1,
-                    writer,
-                    index=0,
-                    tag="train/label",
-                )
-                plot_2d_or_3d_image(
-                    post_trans_pred(outputs)/(opt.n_classes + 1.),
-                    epoch + 1,
-                    writer,
-                    index=0,
-                    tag="train/output",
-                )
-            print(f"epoch {epoch + 1} average loss: {epoch_loss:.4f}")
+        # with torch.no_grad():
+        #     if (epoch + 1) % val_interval == 0:
+        #         print('got to image plotter')
+        #         plot_2d_or_3d_image(
+        #             inputs, epoch + 1, writer, index=0, tag="train/image",
+        #         )
+        #         plot_2d_or_3d_image(
+        #             labels/(opt.n_classes + 1.),
+        #             epoch + 1,
+        #             writer,
+        #             index=0,
+        #             tag="train/label",
+        #         )
+        #         plot_2d_or_3d_image(
+        #             post_trans_pred(outputs)/(opt.n_classes + 1.),
+        #             epoch + 1,
+        #             writer,
+        #             index=0,
+        #             tag="train/output",
+        #         )
+        #     print(f"epoch {epoch + 1} average loss: {epoch_loss:.4f}")
 
         # Validation and checkpointing loop:
         if (epoch + 1) % val_interval == 0:
@@ -181,7 +187,11 @@ def main(opt):
                 val_outputs = None
                 val_loss = 0.0
                 valstep = 0
-                for val_data in val_loader:
+
+                n_samples = 5
+                indices = np.random.choice(len(val_files), n_samples, replace=False)
+
+                for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
                     val_images = val_data["image"].to(device)
                     val_labels = val_data["label"].to(device)
                     roi_size = (opt.crop_size, opt.crop_size, opt.crop_size)
@@ -192,6 +202,8 @@ def main(opt):
                     )
                     val_loss += valloss_function(val_outputs, val_labels)
                     valstep += 1
+                    if i > MAX_VAL_BATCHES:
+                        break
                 val_loss = val_loss / valstep
 
                 if val_loss < best_val_loss:
@@ -206,6 +218,7 @@ def main(opt):
                     )
                     print("saved new best loss model")
 
+
                 print(
                     "current epoch: {} current mean dice: {:.4f}"
                     " best mean dice: {:.4f} at epoch {}".format(
@@ -218,23 +231,26 @@ def main(opt):
                 )
                 # plot the last model output as GIF image in TensorBoard
                 # with the corresponding image and label
-                plot_2d_or_3d_image(
-                    val_images, epoch + 1, writer, index=0, tag="Val/image",
-                )
-                plot_2d_or_3d_image(
-                    val_labels/(opt.n_classes + 1.),
-                    epoch + 1,
-                    writer,
-                    index=0,
-                    tag="Val/label"
-                )
-                plot_2d_or_3d_image(
-                    post_trans_pred(val_outputs)/(opt.n_classes + 1.),
-                    epoch + 1,
-                    writer,
-                    index=0,
-                    tag="Val/output",
-                )
+                # This is painfully slow, so commented out for now
+                # plot_2d_or_3d_image(
+                #     val_images, epoch + 1, writer, index=0, tag="Val/image",
+                # )
+                # plot_2d_or_3d_image(
+                #     val_labels/(opt.n_classes + 1.),
+                #     epoch + 1,
+                #     writer,
+                #     index=0,
+                #     tag="Val/label",
+                #     max_frames=4
+                # )
+                # plot_2d_or_3d_image(
+                #     post_trans_pred(val_outputs)/(opt.n_classes + 1.),
+                #     epoch + 1,
+                #     writer,
+                #     index=0,
+                #     tag="Val/output",
+                #     max_frames=4
+                # )
 
         if (epoch + 1) % val_interval == 0:
             checkpoint = {
@@ -303,6 +319,10 @@ if __name__ == "__main__":
         type=str,
         default='demo',
         help="Prefix to attach to training logs in folder and file names",
+    )
+    parser.add_argument(
+        '--debug', action='store_true',
+        help="If set, use Dataset instead of CacheDataset for training."
     )
 
     args = parser.parse_args()

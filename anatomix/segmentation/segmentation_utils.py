@@ -30,7 +30,7 @@ from anatomix.model.network import Unet
 # Loading pretrained model
 
 
-def load_model(pretrained_ckpt, n_classes, device):
+def load_model(pretrained_ckpt, n_classes, device, freeze_backbone=True):
     """
     Load and configure a U-Net model for semantic segmentation.
 
@@ -61,10 +61,20 @@ def load_model(pretrained_ckpt, n_classes, device):
         print("Transferring from proposed pretrained network.")
         model.load_state_dict(torch.load(pretrained_ckpt))
 
+    if freeze_backbone:
+        print("Freezing encoder weights.")
+        for param in model.parameters():
+            param.requires_grad = False
+
     # Add final classification layer
     fin_layer = UnetOutBlock(3, 16, n_classes + 1, False).to(device)
     new_model = torch.nn.Sequential(model, fin_layer)
     new_model.to(device)
+
+
+    trainable = sum(p.numel() for p in new_model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in new_model.parameters())
+    print(f"Trainable parameters: {trainable:,} / {total:,}")
 
     return new_model
 
