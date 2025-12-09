@@ -20,7 +20,6 @@ from monai.transforms import Compose, Activations, AsDiscrete
 from monai.data import list_data_collate
 
 from monai.inferers import sliding_window_inference
-from monai.visualize import plot_2d_or_3d_image
 from anatomix.segmentation.plot_utils import viz_mid_slices
 
 from tqdm import tqdm
@@ -120,7 +119,8 @@ def main(opt):
         opt.pretrained_ckpt,
         opt.n_classes,
         device,
-        freeze_backbone=True
+        freeze_backbone=False,
+        freeze_encoder=True
     )
 
     # Create Dice + CE loss function
@@ -180,29 +180,6 @@ def main(opt):
         epoch_loss /= step
         epoch_loss_values.append(epoch_loss)
         scheduler.step()
-
-        # Plotting:
-        # with torch.no_grad():
-        #     if (epoch + 1) % val_interval == 0:
-        #         print('got to image plotter')
-        #         plot_2d_or_3d_image(
-        #             inputs, epoch + 1, writer, index=0, tag="train/image",
-        #         )
-        #         plot_2d_or_3d_image(
-        #             labels/(opt.n_classes + 1.),
-        #             epoch + 1,
-        #             writer,
-        #             index=0,
-        #             tag="train/label",
-        #         )
-        #         plot_2d_or_3d_image(
-        #             post_trans_pred(outputs)/(opt.n_classes + 1.),
-        #             epoch + 1,
-        #             writer,
-        #             index=0,
-        #             tag="train/output",
-        #         )
-        #     print(f"epoch {epoch + 1} average loss: {epoch_loss:.4f}")
 
         # Validation and checkpointing loop:
         if (epoch + 1) % val_interval == 0:
@@ -269,29 +246,6 @@ def main(opt):
                     "val_loss_mean_dice", 1-val_loss.item(), epoch + 1
                 )
 
-
-                # plot the last model output as GIF image in TensorBoard
-                # with the corresponding image and label
-                # This is painfully slow, so commented out for now
-                # plot_2d_or_3d_image(
-                #     val_images, epoch + 1, writer, index=0, tag="Val/image",
-                # )
-                # plot_2d_or_3d_image(
-                #     val_labels/(opt.n_classes + 1.),
-                #     epoch + 1,
-                #     writer,
-                #     index=0,
-                #     tag="Val/label",
-                #     max_frames=4
-                # )
-                # plot_2d_or_3d_image(
-                #     post_trans_pred(val_outputs)/(opt.n_classes + 1.),
-                #     epoch + 1,
-                #     writer,
-                #     index=0,
-                #     tag="Val/output",
-                #     max_frames=4
-                # )
 
         if (epoch + 1) % val_interval == 0:
             checkpoint = {
@@ -431,7 +385,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--exp_name',
         type=str,
-        default='demo',
+        default='decoder',
         help="Prefix to attach to training logs in folder and file names",
     )
     parser.add_argument(
