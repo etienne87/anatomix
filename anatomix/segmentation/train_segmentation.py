@@ -62,6 +62,9 @@ def main(opt):
         opt.dataset, opt.train_amount, opt.n_iters_per_epoch, opt.batch_size,
     )
 
+    dataset_json = json.load(open(os.path.join(opt.dataset, 'dataset.json')))
+    labels_list = dataset_json['labels']
+
     print('Training cache: {} images {} segs'.format(len(trimages), len(trsegs)))
     print('Validation set: {} images {} segs'.format(len(vaimages), len(vasegs)))
 
@@ -90,7 +93,7 @@ def main(opt):
         batch_size=opt.batch_size,
         shuffle=True,
         num_workers=8,
-        collate_fn=lambda x:x,
+        collate_fn=list_data_collate,
         worker_init_fn=worker_init_fn
     )
 
@@ -142,6 +145,7 @@ def main(opt):
     best_val_loss = 10000000000
     epoch_loss_values = list()
     pth_best_val_loss = ""
+    pth_last_epoch = ""
     writer = SummaryWriter(
         log_dir='finetuning_runs/runs/{}/'.format(opt.exp_name),
         comment='_segmentor',
@@ -157,7 +161,6 @@ def main(opt):
         for batch_data in tqdm(train_loader, total=len(train_loader)):
             step += 1
 
-            breakpoint()
             inputs = batch_data["image"].to(device)
             labels = batch_data["label"].to(device)
 
@@ -224,6 +227,22 @@ def main(opt):
                     valstep += 1
                     if i > MAX_VAL_BATCHES:
                         break
+
+                    img = val_images[0, 0].cpu().numpy()
+                    gt_mask = val_labels[0, 0].cpu().numpy()
+                    viz_mid_slices(
+                        img, gt_mask, labels_list,
+                        writer=writer, tag="Val/ground_truth", global_step=epoch + 1
+                    )
+
+                    # Visualize prediction
+                    pred_mask = val_outputs.argmax(dim=1)[0].cpu().numpy()
+                    viz_mid_slices(
+                        img, pred_mask, labels_list,
+                        writer=writer, tag="Val/prediction", global_step=epoch + 1
+                    )
+
+
                 val_loss = val_loss / valstep
 
                 if val_loss < best_val_loss:
@@ -249,6 +268,8 @@ def main(opt):
                 writer.add_scalar(
                     "val_loss_mean_dice", 1-val_loss.item(), epoch + 1
                 )
+
+
                 # plot the last model output as GIF image in TensorBoard
                 # with the corresponding image and label
                 # This is painfully slow, so commented out for now
@@ -330,7 +351,7 @@ def demo(opt):
     dataset_json = json.load(open(os.path.join(opt.dataset, 'dataset.json')))
     labels_list = dataset_json['labels']
 
-    valloss_function = monai.losses.DiceLoss(softmax=True, to_onehot_y=True, include_background=False)
+    valloss_function = monai.losses.DiceLoss(softmax=True, to_onehot_y=True, include_background=False, reduction="none")
     demo_dir = f'finetuning_runs_8-12-2025/demo_outputs/{opt.exp_name}/'
     os.makedirs(demo_dir, exist_ok=True)
     with torch.no_grad():
@@ -344,8 +365,11 @@ def demo(opt):
                 new_model, overlap=0.7,
             )
 
-            dice = 1-valloss_function(val_outputs, val_labels)
-            print(f"Sample {i} Dice: {dice.item():.4f}")
+            dices = 1-valloss_function(val_outputs, val_labels).squeeze()
+            for label_name, idx in labels_list.items():
+                if idx == 0:
+                    continue
+                print(f"{label_name}: Dice {dices[idx-1].item():.4f}")
 
             img = val_images[0,0].cpu().numpy()
             labels = val_outputs.argmax(dim=1)[0].cpu().numpy()
@@ -417,5 +441,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # main(args)
-    demo(args)
+    main(args)
+    # demo(args)

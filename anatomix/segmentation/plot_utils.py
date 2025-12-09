@@ -3,6 +3,10 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.patches import Patch
 
+import io
+from PIL import Image
+
+
 
 # Predefined color map for first 15 labels
 BASE_COLORS = [
@@ -33,7 +37,7 @@ LABEL_COLORS = create_colors(50)  # Support up to 50 labels
 
 
 
-def viz_mid_slices(vol, mask, labels=None, filename=None):
+def viz_mid_slices(vol, mask, labels=None, filename=None, writer=None, tag="", global_step=0):
     assert vol.shape == mask.shape
 
     # Handle labels parameter
@@ -78,8 +82,28 @@ def viz_mid_slices(vol, mask, labels=None, filename=None):
     plt.tight_layout()
     plt.subplots_adjust(right=0.85)  # Make room for legend
 
+
+
+    # Log to TensorBoard if writer is provided
+    if writer is not None:
+        # Convert figure to image array
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        image = Image.open(buf)
+        image_array = np.array(image)
+
+        # Convert to CHW format for TensorBoard (height, width, channels) -> (channels, height, width)
+        if len(image_array.shape) == 3:
+            image_array = np.transpose(image_array, (2, 0, 1))
+
+        # Add to TensorBoard
+        writer.add_image(tag, image_array, global_step)
+        buf.close()
+
     if filename is not None:
         plt.savefig(filename, dpi=150, bbox_inches='tight')
     else:
         plt.show()
+
     plt.close()
