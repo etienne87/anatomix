@@ -1,4 +1,12 @@
+"""
+TODO:
+1. handle checkpoint saving better (save last only + best) : DONE
+2. accelerate transforms by running them on GPU. (Pre-Crop Randomly with worst size being calculated by rotated patch_size by 45°)
+3. add fast plotting on mid-slices with labels for validation.
+
+"""
 import logging
+import json
 import os
 import sys
 import argparse
@@ -10,8 +18,10 @@ from torch.utils.tensorboard import SummaryWriter
 import monai
 from monai.transforms import Compose, Activations, AsDiscrete
 from monai.data import list_data_collate
+
 from monai.inferers import sliding_window_inference
 from monai.visualize import plot_2d_or_3d_image
+from anatomix.segmentation.plot_utils import viz_mid_slices
 
 from tqdm import tqdm
 
@@ -23,6 +33,13 @@ from anatomix.segmentation.segmentation_utils import (
     get_val_transforms,
     data_handler,
 )
+
+
+# from anatomix.segmentation.segmentation_utils import (
+#     get_preload_transforms,
+#     get_train_gpu_transforms,
+# )
+# from monai.data import ThreadDataLoader
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -58,12 +75,14 @@ def main(opt):
     # define transforms for image and segmentation
     train_transforms = get_train_transforms(opt.crop_size)
     val_transforms = get_val_transforms()
+    # load_transforms = get_preload_transforms(opt.crop_size)
+    # train_gpu_transforms = get_train_gpu_transforms(opt.crop_size, 'cuda')
 
     # create a training data loader
     # transform to Dataset if debug mode
     train_ds = monai.data.CacheDataset(
         data=train_files, transform=train_transforms,
-        cache_rate=1.0, num_workers=8,
+        cache_rate=1.0, num_workers=8
     )
 
     train_loader = DataLoader(
@@ -71,7 +90,7 @@ def main(opt):
         batch_size=opt.batch_size,
         shuffle=True,
         num_workers=8,
-        collate_fn=list_data_collate,
+        collate_fn=lambda x:x,
         worker_init_fn=worker_init_fn
     )
 
@@ -86,6 +105,7 @@ def main(opt):
         shuffle=True,
     )
 
+    # this is not used?
     post_trans_pred = Compose(
         [Activations(softmax=True, dim=1), AsDiscrete(argmax=True, dim=1)]
     )
@@ -121,6 +141,7 @@ def main(opt):
     val_interval = opt.val_interval
     best_val_loss = 10000000000
     epoch_loss_values = list()
+    pth_best_val_loss = ""
     writer = SummaryWriter(
         log_dir='finetuning_runs/runs/{}/'.format(opt.exp_name),
         comment='_segmentor',
@@ -135,6 +156,8 @@ def main(opt):
         step = 0
         for batch_data in tqdm(train_loader, total=len(train_loader)):
             step += 1
+
+            breakpoint()
             inputs = batch_data["image"].to(device)
             labels = batch_data["label"].to(device)
 
@@ -188,9 +211,6 @@ def main(opt):
                 val_loss = 0.0
                 valstep = 0
 
-                n_samples = 5
-                indices = np.random.choice(len(val_files), n_samples, replace=False)
-
                 for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
                     val_images = val_data["image"].to(device)
                     val_labels = val_data["label"].to(device)
@@ -209,12 +229,12 @@ def main(opt):
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     best_loss_epoch = epoch + 1
+                    if pth_best_val_loss != "":
+                        os.remove(pth_best_val_loss)
+                    pth_best_val_loss = os.path.join( f"finetuning_runs/checkpoints/{opt.exp_name}", f"best_dict_epoch{epoch + 1:04d}.pth")
                     torch.save(
                         new_model.state_dict(),
-                        "finetuning_runs/checkpoints/{}/"
-                        "best_dict_epoch{:04d}.pth".format(
-                            opt.exp_name, epoch + 1,
-                        ),
+                        pth_best_val_loss
                     )
                     print("saved new best loss model")
 
@@ -227,7 +247,7 @@ def main(opt):
                     )
                 )
                 writer.add_scalar(
-                    "val_loss_mean_dice", val_loss.item(), epoch + 1
+                    "val_loss_mean_dice", 1-val_loss.item(), epoch + 1
                 )
                 # plot the last model output as GIF image in TensorBoard
                 # with the corresponding image and label
@@ -258,14 +278,84 @@ def main(opt):
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict(),
             }
+            if pth_last_epoch:
+                os.remove(pth_last_epoch)
+            pth_last_epoch = 'finetuning_runs/checkpoints/{}/epoch{:04d}.pth'.format(opt.exp_name, epoch+1)
             save_ckp(
                 checkpoint,
-                'finetuning_runs/checkpoints/{}/epoch{:04d}.pth'.format(
-                    opt.exp_name, epoch+1
-                ),
+                pth_last_epoch
             )
 
     writer.close()
+
+
+def demo(opt):
+    _, __, vaimages, vasegs = data_handler(
+        opt.dataset, opt.train_amount, opt.n_iters_per_epoch, opt.batch_size,
+    )
+
+    val_files = [
+        {"image": img, "label": seg} for img, seg in zip(vaimages, vasegs)
+    ]
+
+    # define transforms for image and segmentation
+    val_transforms = get_val_transforms()
+
+    # create a validation data loader
+    val_ds = monai.data.Dataset(data=val_files, transform=val_transforms)
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=1,
+        num_workers=0,
+        collate_fn=list_data_collate,
+        worker_init_fn=worker_init_fn,
+        shuffle=True,
+    )
+
+    # Create UNet, DiceLoss and Adam optimizer
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+    new_model = load_model(
+        opt.pretrained_ckpt,
+        opt.n_classes,
+        device,
+        freeze_backbone=True
+    )
+
+    checkpoint_filepath = f'finetuning_runs_8-12-2025/checkpoints/{opt.exp_name}/best_dict_epoch0264.pth'
+    new_model.load_state_dict(torch.load(checkpoint_filepath, weights_only=True))
+    new_model.eval()
+
+    dataset_json = json.load(open(os.path.join(opt.dataset, 'dataset.json')))
+    labels_list = dataset_json['labels']
+
+    valloss_function = monai.losses.DiceLoss(softmax=True, to_onehot_y=True, include_background=False)
+    demo_dir = f'finetuning_runs_8-12-2025/demo_outputs/{opt.exp_name}/'
+    os.makedirs(demo_dir, exist_ok=True)
+    with torch.no_grad():
+        for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
+            val_images = val_data["image"].to(device)
+            val_labels = val_data["label"].to(device)
+            roi_size = (opt.crop_size, opt.crop_size, opt.crop_size)
+            sw_batch_size = 4
+            val_outputs = sliding_window_inference(
+                val_images, roi_size, sw_batch_size,
+                new_model, overlap=0.7,
+            )
+
+            dice = 1-valloss_function(val_outputs, val_labels)
+            print(f"Sample {i} Dice: {dice.item():.4f}")
+
+            img = val_images[0,0].cpu().numpy()
+            labels = val_outputs.argmax(dim=1)[0].cpu().numpy()
+            viz_mid_slices(
+                img,
+                labels,
+                labels_list,
+                filename=f'{demo_dir}/demo_output_sample{i}_image_output.png')
+
+
 
 
 if __name__ == "__main__":
@@ -327,4 +417,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(args)
+    # main(args)
+    demo(args)

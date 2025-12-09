@@ -20,7 +20,7 @@ from monai.transforms import (
     RandAffined,
     EnsureTyped,
     EnsureChannelFirstd,
-    DivisiblePadd
+    ToDeviced
 )
 
 from anatomix.model.network import Unet
@@ -119,6 +119,79 @@ def worker_init_fn(worker_id):
 # -----------------------------------------------------------------------------
 # augmentation definitions
 
+def get_preload_transforms(crop_size):
+    diag_crop_size = int(np.ceil(np.sqrt(3*(int(crop_size)**2))))
+    diag_crop_size = (diag_crop_size,)*3
+    preload_transforms = Compose(
+        [
+            LoadImaged(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
+            EnsureTyped(keys=["image", "label"]),
+            ScaleIntensityd(keys="image"),
+            RandSpatialCropd(
+                keys=["image", "label"],
+                roi_size=diag_crop_size,
+                random_size=False,
+            ),
+        ]
+    )
+    return preload_transforms
+
+
+def get_train_gpu_transforms(crop_size, device):
+    """
+    Get training data transforms that run on GPU.
+
+    Parameters
+    ----------
+    crop_size : int
+        The size of the crop to be applied to the images.
+    device : torch.device
+        Device to perform the transformations on ('cuda' or 'cpu').
+
+    Returns
+    -------
+    train_gpu_transforms : Compose
+        A composed transform object containing the specified
+        transformations for the training dataset on GPU.
+    """
+
+    train_gpu_transforms = Compose(
+        [
+            ToDeviced(keys=["image", "label"], device=device),
+            RandSpatialCropd(
+                keys=["image", "label"],
+                roi_size=[crop_size, crop_size, crop_size],
+                random_size=False,
+            ),
+            RandGaussianNoised(keys=["image"], prob=0.33),
+            RandBiasFieldd(
+                keys=["image"], prob=0.33, coeff_range=(0.0, 0.05)
+            ),
+            RandGibbsNoised(keys=["image"], prob=0.33, alpha=(0.0, 0.33)),
+            RandAdjustContrastd(keys=["image"], prob=0.33),
+            RandGaussianSmoothd(
+                keys=["image"],
+                prob=0.33,
+                sigma_x=(0.0, 0.1), sigma_y=(0.0, 0.1), sigma_z=(0.0, 0.1),
+            ),
+            RandGaussianSharpend(keys=["image"], prob=0.33),
+            RandAffined(
+                keys=["image", "label"],
+                prob=0.98,
+                mode=("bilinear", "nearest"),
+                rotate_range=(np.pi/4, np.pi/4, np.pi/4),
+                scale_range=(0.2, 0.2, 0.2),
+                shear_range=(0.2, 0.2, 0.2),
+                spatial_size=(crop_size, crop_size, crop_size),
+                padding_mode='zeros',
+            ),
+            ScaleIntensityd(keys="image"),
+        ]
+    )
+    return train_gpu_transforms
+
+
 def get_train_transforms(crop_size):
     """
     Get training data transforms based on the specified dataset.
@@ -186,12 +259,6 @@ def get_val_transforms():
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             EnsureTyped(keys=["image", "label"]),
-            # DivisiblePadd(keys=["image", "label"], k=32, mode=('constant'), method= ("symmetric")),
-            RandSpatialCropd(
-                keys=["image", "label"],
-                roi_size=[crop_size, crop_size, crop_size],
-                random_size=False,
-            ),
             ScaleIntensityd(keys="image"),
         ]
     )
