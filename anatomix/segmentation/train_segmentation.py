@@ -120,7 +120,7 @@ def main(opt):
         opt.n_classes,
         device,
         freeze_backbone=False,
-        freeze_encoder=True
+        freeze_encoder=False
     )
 
     # Create Dice + CE loss function
@@ -139,6 +139,7 @@ def main(opt):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=opt.n_epochs
     )
+    scaler = torch.GradScaler("cuda")
 
     # start a typical PyTorch training
     val_interval = opt.val_interval
@@ -146,10 +147,12 @@ def main(opt):
     epoch_loss_values = list()
     pth_best_val_loss = ""
     pth_last_epoch = ""
+    amp_enabled = opt.amp_enabled
     writer = SummaryWriter(
         log_dir='finetuning_runs/runs/{}/'.format(opt.exp_name),
         comment='_segmentor',
     )
+    print("amp enabled: ", amp_enabled)
 
     # Training loop
     for epoch in range(opt.n_epochs):
@@ -166,10 +169,15 @@ def main(opt):
 
             optimizer.zero_grad()
 
-            outputs = new_model(inputs)
-            loss = loss_function(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            with torch.amp.autocast("cuda", enabled=amp_enabled):
+                outputs = new_model(inputs)
+                loss = loss_function(outputs, labels)
+
+            # Backward pass
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
             epoch_loss += loss.item()
             epoch_len = len(train_ds) // train_loader.batch_size
             print(f"{step}/{epoch_len}, train_loss: {loss.item():.4f}")
@@ -207,17 +215,18 @@ def main(opt):
 
                     img = val_images[0, 0].cpu().numpy()
                     gt_mask = val_labels[0, 0].cpu().numpy()
-                    viz_mid_slices(
-                        img, gt_mask, labels_list,
-                        writer=writer, tag="Val/ground_truth", global_step=epoch + 1
-                    )
+                    if i == 0:
+                        viz_mid_slices(
+                            img, gt_mask, labels_list,
+                            writer=writer, tag="Val/ground_truth", global_step=epoch + 1
+                        )
 
-                    # Visualize prediction
-                    pred_mask = val_outputs.argmax(dim=1)[0].cpu().numpy()
-                    viz_mid_slices(
-                        img, pred_mask, labels_list,
-                        writer=writer, tag="Val/prediction", global_step=epoch + 1
-                    )
+                        # Visualize prediction
+                        pred_mask = val_outputs.argmax(dim=1)[0].cpu().numpy()
+                        viz_mid_slices(
+                            img, pred_mask, labels_list,
+                            writer=writer, tag="Val/prediction", global_step=epoch + 1
+                        )
 
 
                 val_loss = val_loss / valstep
@@ -243,7 +252,7 @@ def main(opt):
                     )
                 )
                 writer.add_scalar(
-                    "val_loss_mean_dice", 1-val_loss.item(), epoch + 1
+                    "val_loss_mean_dice_metric", 1-val_loss.item(), epoch + 1
                 )
 
 
@@ -391,6 +400,10 @@ if __name__ == "__main__":
     parser.add_argument(
         '--debug', action='store_true',
         help="If set, use Dataset instead of CacheDataset for training."
+    )
+    parser.add_argument(
+        '--amp_enabled', action='store_false',
+        help="If set, use Mixed Precision."
     )
 
     args = parser.parse_args()
