@@ -35,7 +35,7 @@ from anatomix.segmentation.segmentation_utils import (
     data_handler,
 )
 
-from mind_unet import MindUNet
+from mind import MindUnet
 
 
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -122,7 +122,7 @@ def main(opt):
     # )
 
     #handcrafted descriptor (wha, so 90s)
-    new_model = MindUNet(opt.n_classes+1)
+    new_model = MindUnet(opt.n_classes+1).to(device)
 
     # Create Dice + CE loss function
     loss_function = monai.losses.DiceCELoss(

@@ -8,8 +8,8 @@ from anatomix.model.network import Unet
 class MindUnet(Unet):
     def __init__(self,
         output_nc,
-        *args, **kwargs):
-        super(Unet, self).__init__(3, 12, output_nc, *args, **kwargs)
+        **kwargs):
+        super().__init__(dimension=3, input_nc=12, output_nc=output_nc, num_downs=6, **kwargs)
 
     def forward(self, x):
         y = MINDSSC(x)
