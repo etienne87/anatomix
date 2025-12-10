@@ -1,9 +1,11 @@
 """
 TODO:
 1. handle checkpoint saving better (save last only + best) : DONE
-2. accelerate transforms by running them on GPU. (Pre-Crop Randomly with worst size being calculated by rotated patch_size by 45°)
-3. add fast plotting on mid-slices with labels for validation.
+2. accelerate transforms by running them on GPU. (Pre-Crop Randomly with worst size being calculated by rotated patch_size by 45°): KO
+3. add fast plotting on mid-slices with labels for validation.: DONE
 
+
+Train on Anatomix Fabien dataset
 """
 import logging
 import json
@@ -32,13 +34,6 @@ from anatomix.segmentation.segmentation_utils import (
     get_val_transforms,
     data_handler,
 )
-
-
-# from anatomix.segmentation.segmentation_utils import (
-#     get_preload_transforms,
-#     get_train_gpu_transforms,
-# )
-# from monai.data import ThreadDataLoader
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -304,18 +299,27 @@ def demo(opt):
         opt.pretrained_ckpt,
         opt.n_classes,
         device,
-        freeze_backbone=True
+        freeze_backbone=False,
+        freeze_encoder=False
     )
 
-    checkpoint_filepath = f'finetuning_runs_8-12-2025/checkpoints/{opt.exp_name}/best_dict_epoch0264.pth'
+    dir_save = f'finetuning_runs'
+
+    checkpoint_filepath = f'{dir_save}/checkpoints/{opt.exp_name}/best_dict_epoch0238.pth'
     new_model.load_state_dict(torch.load(checkpoint_filepath, weights_only=True))
     new_model.eval()
+
 
     dataset_json = json.load(open(os.path.join(opt.dataset, 'dataset.json')))
     labels_list = dataset_json['labels']
 
+    # fake one (we should put it inside the checkpoint perhaps)
+    # dataset_json = json.load(open(os.path.join('/home/eperot/nnUNet_raw/Dataset903_baselineCT_oneview_without_clahe/', 'dataset.json')))
+    # labels_list = dataset_json['labels']
+
+
     valloss_function = monai.losses.DiceLoss(softmax=True, to_onehot_y=True, include_background=False, reduction="none")
-    demo_dir = f'finetuning_runs_8-12-2025/demo_outputs/{opt.exp_name}/'
+    demo_dir = f'{dir_save}/demo_outputs/{opt.exp_name}/'
     os.makedirs(demo_dir, exist_ok=True)
     with torch.no_grad():
         for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
@@ -405,8 +409,14 @@ if __name__ == "__main__":
         '--amp_enabled', action='store_false',
         help="If set, use Mixed Precision."
     )
+    parser.add_argument(
+        '--demo', action='store_true',
+        help="If set, launch demo."
+    )
 
     args = parser.parse_args()
 
-    main(args)
-    # demo(args)
+    if args.demo:
+        demo(args)
+    else:
+        main(args)
