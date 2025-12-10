@@ -268,7 +268,9 @@ def main(opt):
     writer.close()
 
 
-def demo(opt):
+def val(opt):
+    import pandas as pd
+
     _, __, vaimages, vasegs = data_handler(
         opt.dataset, opt.train_amount, opt.n_iters_per_epoch, opt.batch_size,
     )
@@ -305,7 +307,7 @@ def demo(opt):
 
     dir_save = f'finetuning_runs'
 
-    checkpoint_filepath = f'{dir_save}/checkpoints/{opt.exp_name}/best_dict_epoch0238.pth'
+    checkpoint_filepath = f'{dir_save}/checkpoints/{opt.exp_name}/best_dict_epoch0496.pth'
     new_model.load_state_dict(torch.load(checkpoint_filepath, weights_only=True))
     new_model.eval()
 
@@ -317,10 +319,10 @@ def demo(opt):
     # dataset_json = json.load(open(os.path.join('/home/eperot/nnUNet_raw/Dataset903_baselineCT_oneview_without_clahe/', 'dataset.json')))
     # labels_list = dataset_json['labels']
 
-
     valloss_function = monai.losses.DiceLoss(softmax=True, to_onehot_y=True, include_background=False, reduction="none")
     demo_dir = f'{dir_save}/demo_outputs/{opt.exp_name}/'
     os.makedirs(demo_dir, exist_ok=True)
+    all_dices = []
     with torch.no_grad():
         for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
             val_images = val_data["image"].to(device)
@@ -333,19 +335,39 @@ def demo(opt):
             )
 
             dices = 1-valloss_function(val_outputs, val_labels).squeeze()
+            dices = dices.cpu().numpy()
+            case_dices = {'case': f'case_{i}'}
             for label_name, idx in labels_list.items():
                 if idx == 0:
                     continue
-                print(f"{label_name}: Dice {dices[idx-1].item():.4f}")
+                dice_value = dices[idx-1]
+                case_dices[label_name] = dice_value
+                print(f"{label_name}: Dice {dice_value:.4f}")
 
-            img = val_images[0,0].cpu().numpy()
-            labels = val_outputs.argmax(dim=1)[0].cpu().numpy()
-            viz_mid_slices(
-                img,
-                labels,
-                labels_list,
-                filename=f'{demo_dir}/demo_output_sample{i}_image_output.png')
+            all_dices += [case_dices]
 
+            if opt.viz:
+                img = val_images[0,0].cpu().numpy()
+                labels = val_outputs.argmax(dim=1)[0].cpu().numpy()
+                viz_mid_slices(
+                    img,
+                    labels,
+                    labels_list,
+                    filename=f'{demo_dir}/demo_output_sample{i}_image_output.png')
+
+
+    df = pd.DataFrame(all_dices)
+    # Calculate average row
+    avg_row = {'case': 'average'}
+    for col in df.columns:
+        if col != 'case':
+            avg_row[col] = df[col].mean()
+    # Insert average as first row
+    df = pd.concat([pd.DataFrame([avg_row]), df], ignore_index=True)
+    # Save to CSV
+    csv_path = f'{demo_dir}/dice_scores.csv'
+    df.to_csv(csv_path, index=False, float_format='%.4f')
+    print(f"Saved dice scores to {csv_path}")
 
 
 
@@ -410,13 +432,17 @@ if __name__ == "__main__":
         help="If set, use Mixed Precision."
     )
     parser.add_argument(
-        '--demo', action='store_true',
-        help="If set, launch demo."
+        '--val', action='store_true',
+        help="If set, launch validation."
+    )
+    parser.add_argument(
+        '--viz', action='store_true',
+        help="If set, viz cases during validation."
     )
 
     args = parser.parse_args()
 
-    if args.demo:
-        demo(args)
+    if args.val:
+        val(args)
     else:
         main(args)
