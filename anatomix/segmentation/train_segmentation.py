@@ -35,6 +35,9 @@ from anatomix.segmentation.segmentation_utils import (
     data_handler,
 )
 
+from mind_unet import MindUNet
+
+
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
@@ -110,12 +113,16 @@ def main(opt):
     # Create UNet, DiceLoss and Adam optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    new_model = load_model(
-        opt.pretrained_ckpt,
-        opt.n_classes,
-        device,
-        freeze_mode="stem",
-    )
+    # anatomix pretrained
+    # new_model = load_model(
+    #     opt.pretrained_ckpt,
+    #     opt.n_classes,
+    #     device,
+    #     freeze_mode="none",
+    # )
+
+    #handcrafted descriptor (wha, so 90s)
+    new_model = MindUNet(opt.n_classes+1)
 
     # Create Dice + CE loss function
     loss_function = monai.losses.DiceCELoss(
@@ -300,13 +307,12 @@ def val(opt):
         opt.pretrained_ckpt,
         opt.n_classes,
         device,
-        freeze_backbone=False,
-        freeze_encoder=False
+        freeze_mode="stem"
     )
 
     dir_save = f'finetuning_runs'
 
-    checkpoint_filepath = f'{dir_save}/checkpoints/{opt.exp_name}/best_dict_epoch0496.pth'
+    checkpoint_filepath = f'{dir_save}/checkpoints/{opt.exp_name}/best_dict_epoch0176.pth'
     new_model.load_state_dict(torch.load(checkpoint_filepath, weights_only=True))
     new_model.eval()
 
@@ -315,8 +321,8 @@ def val(opt):
     labels_list = dataset_json['labels']
 
     # fake one (we should put it inside the checkpoint perhaps)
-    # dataset_json = json.load(open(os.path.join('/home/eperot/nnUNet_raw/Dataset903_baselineCT_oneview_without_clahe/', 'dataset.json')))
-    # labels_list = dataset_json['labels']
+    dataset_json = json.load(open(os.path.join('/home/eperot/nnUNet_raw/Dataset903_baselineCT_oneview_without_clahe/', 'dataset.json')))
+    labels_list = dataset_json['labels']
 
     valloss_function = monai.losses.DiceLoss(softmax=True, to_onehot_y=True, include_background=False, reduction="none")
     demo_dir = f'{dir_save}/demo_outputs/{opt.exp_name}/'
@@ -353,7 +359,6 @@ def val(opt):
                     labels,
                     labels_list,
                     filename=f'{demo_dir}/demo_output_sample{i}_image_output.png')
-
 
     df = pd.DataFrame(all_dices)
     # Calculate average row
