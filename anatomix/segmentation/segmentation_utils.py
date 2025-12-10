@@ -29,7 +29,7 @@ from anatomix.model.network import Unet
 # Loading pretrained model
 
 
-def load_model(pretrained_ckpt, n_classes, device, freeze_backbone, freeze_encoder):
+def load_model(pretrained_ckpt, n_classes, device, freeze_mode):
     """
     Load and configure a U-Net model for semantic segmentation.
 
@@ -60,18 +60,27 @@ def load_model(pretrained_ckpt, n_classes, device, freeze_backbone, freeze_encod
         print("Transferring from proposed pretrained network.")
         model.load_state_dict(torch.load(pretrained_ckpt))
 
-    if freeze_backbone:
+    if freeze_mode == "backbone":
         print("Freezing backbone weights.")
         for param in model.parameters():
             param.requires_grad = False
 
-    if freeze_encoder:
+    if freeze_mode == "encoder":
         first_decoder_idx = model.decoder_idx[0]
-        print("Freezing encoder weights.")
+        print(f"Freezing encoder weights. Everything before layer index: {first_decoder_idx}")
         for num_layer, (name, param) in enumerate(model.named_parameters()):
             if num_layer < first_decoder_idx:
                 print('freeze layer: ', name)
                 param.requires_grad = False
+
+    if freeze_mode == "stem":
+        first_decoder_idx = model.encoder_idx[0]
+        print(f"Freezing stem weights. Everything before layer index: {first_decoder_idx}")
+        for num_layer, (name, param) in enumerate(model.named_parameters()):
+            if num_layer < first_decoder_idx:
+                print('freeze layer: ', name)
+                param.requires_grad = False
+
 
     # Add final classification layer
     fin_layer = UnetOutBlock(3, 16, n_classes + 1, False).to(device)

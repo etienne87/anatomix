@@ -114,8 +114,7 @@ def main(opt):
         opt.pretrained_ckpt,
         opt.n_classes,
         device,
-        freeze_backbone=False,
-        freeze_encoder=False
+        freeze_mode="stem",
     )
 
     # Create Dice + CE loss function
