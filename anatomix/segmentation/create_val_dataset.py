@@ -5,7 +5,8 @@ import os
 import glob
 import json
 import numpy as np
-import common_io as cio
+from deep_learning.load_and_export import loaders
+
 import nibabel as nib
 import matplotlib.pyplot as plt
 
@@ -23,6 +24,15 @@ from monai.transforms import (
 
 
 
+val_transforms_ipl = Compose(
+    [
+        LoadImage(),
+        EnsureChannelFirst(),
+        EnsureType(),
+        Orientation(axcodes='IPL'),
+    ]
+)
+
 val_transforms_ipl_31515 = Compose(
     [
         LoadImage(),
@@ -36,10 +46,11 @@ val_transforms_ipl_31515 = Compose(
 def load_2d_seglists_cases():
     amos_test_image_path = os.path.join("/net/frbucawnas02/export/hadokenalgo/datasets/Abdomen/amos22/imagesTs/")
     tsimages = sorted(glob.glob(os.path.join(amos_test_image_path, '*.nii.gz')))
-    ts_images_by_case_nums = {}
+    ts_images_filenames_by_case_num = {}
     for tsimg in tsimages:
         case_num = int(os.path.basename(tsimg).split('_')[1].split('.nii.gz')[0])
-        ts_images_by_case_nums[case_num] = tsimg
+        ts_images_filenames_by_case_num[case_num] = tsimg
+
 
     dir_path = os.path.join("/net/frbucawnas02/export/hadokenalgo/projects/oneview_for_mr/gt/gt_2D_test/")
     seglists = glob.glob(dir_path + '*.seglist')
@@ -48,7 +59,7 @@ def load_2d_seglists_cases():
     mr = json.load(open(baseline_mr_json, 'r'))
     labels = mr['labels']
 
-    # case_slices = {}
+    ts_images_by_case_num = {}
 
     cases_masks = {}
     for seglist in seglists:
@@ -56,8 +67,14 @@ def load_2d_seglists_cases():
         label = os.path.basename(seglist).split('_')[-1].split('.seglist')[0]
         if label in ['trabecularBone', 'ascite']:
             continue
-        mask = cio.load_seg(seglist)>0
 
+        if case_num not in ts_images_by_case_num:
+            ts_images_by_case_num[case_num] = val_transforms_ipl(ts_images_filenames_by_case_num[case_num])
+
+        vol = ts_images_by_case_num[case_num]
+        mask = loaders.seglist2mask(seglist, vol.shape[1:])
+        print(vol.shape[1:], mask.shape)
+       
         label_num = labels.get(label, 0)
 
         img = cases_masks.get(case_num, np.zeros(mask.shape, dtype=np.int32))
@@ -72,19 +89,6 @@ def load_2d_seglists_cases():
         # viz
         # mip = img.max(axis=0)
         # plt.imsave(f"viz/test#{case_num}.png", mip, cmap='tab20')
-
-    for case_num, mask in cases_masks.items():
-
-        img_nifti_path = ts_images_by_case_nums[case_num]
-
-        img = val_transforms_ipl_31515(img_nifti_path)
-
-
-        print(img.shape, mask.shape)
-
-        if img.shape != mask.shape:
-            print(f'something is wrong with case {case_num}')
-            continue
 
 
 
