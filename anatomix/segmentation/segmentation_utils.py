@@ -18,6 +18,7 @@ from monai.transforms import (
     RandGibbsNoised,
     RandSpatialCropd,
     RandAffined,
+    RandAxisFlipd,
     EnsureTyped,
     EnsureChannelFirstd,
 )
@@ -134,7 +135,7 @@ def worker_init_fn(worker_id):
 # -----------------------------------------------------------------------------
 # augmentation definitions
 
-def get_train_transforms(crop_size):
+def get_train_transforms(crop_size: tuple=(128,128,128)):
     """
     Get training data transforms based on the specified dataset.
 
@@ -156,6 +157,8 @@ def get_train_transforms(crop_size):
     """
     if isinstance(crop_size, int):
         crop_size = (crop_size,)*3
+    if isinstance(crop_size, list):
+        crop_size = tuple(crop_size)
 
     # is this pipeline optimal?
     # Initial Crop should be larger than crop size
@@ -173,6 +176,7 @@ def get_train_transforms(crop_size):
                 roi_size=crop_size,
                 random_size=False,
             ),
+            RandAxisFlipd(["image", "label"], prob=0.15, lazy=True),
             RandGaussianNoised(keys=["image"], prob=0.33),
             RandBiasFieldd(
                 keys=["image"], prob=0.33, coeff_range=(0.0, 0.05)

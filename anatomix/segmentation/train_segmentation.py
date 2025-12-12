@@ -68,7 +68,6 @@ def main(opt):
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(vaimages, vasegs)
     ]
-
     # define transforms for image and segmentation
     train_transforms = get_train_transforms(opt.crop_size)
     val_transforms = get_val_transforms()
@@ -410,16 +409,8 @@ if __name__ == "__main__":
         help="Adam step size",
     )
 
-    """optimized patch_size by nnUNet
-
-    "patch_size": [
-                48,
-                160,
-                224
-            ]
-    """
     parser.add_argument(
-        '--crop_size', type=list, default=[128,128,128],
+        '--crop_size', type=tuple, default=(128,128,48),
         help="Crop size to train on",
     )
     parser.add_argument(
