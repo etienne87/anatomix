@@ -21,6 +21,7 @@ from monai.transforms import (
     RandAxisFlipd,
     EnsureTyped,
     EnsureChannelFirstd,
+    RandRotate90d,
     Orientationd
 )
 
@@ -179,6 +180,11 @@ def get_train_transforms(crop_size: tuple=(128,128,128)):
                 random_size=False,
             ),
             RandAxisFlipd(["image", "label"], prob=0.15, lazy=True),
+            RandRotate90d(
+                keys=["image", "label"],
+                prob=0.10,
+                max_k=3,
+            ),
             RandGaussianNoised(keys=["image"], prob=0.33),
             RandBiasFieldd(
                 keys=["image"], prob=0.33, coeff_range=(0.0, 0.05)
@@ -192,6 +198,7 @@ def get_train_transforms(crop_size: tuple=(128,128,128)):
             ),
 
             RandGaussianSharpend(keys=["image"], prob=0.33),
+
             RandAffined(
                 keys=["image", "label"],
                 prob=0.98,
