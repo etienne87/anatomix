@@ -106,7 +106,8 @@ def viz(dataset_path, mode='test'):
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             EnsureTyped(keys=["image", "label"]),
-            # Orientationd(keys=["image", "label"], axcodes='IPL'),
+            Orientationd(keys=["image", "label"], axcodes='RAS'),
+            # Spacingd(keys=["image", "label"], mode=('bilinear', 'nearest'), pixdim=[1.5,1.5,3]),
             # Spacingd(keys=["image", "label"], mode=('bilinear', 'nearest'), pixdim=[3,1.5,1.5]),
         ]
     )
@@ -120,8 +121,8 @@ def viz(dataset_path, mode='test'):
     for idx, data in enumerate(tqdm.tqdm(dataset, total=len(dataset))):
         img = data['image'].cpu().numpy().squeeze()
         lab = data['label'].cpu().numpy().squeeze()
-        viz_mid_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
-        # viz_mid_axial_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
+        # viz_mid_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
+        viz_mid_axial_slices(img, lab, labels, filename=f"viz/test#{idx}.png", axis=2) # put axis=2 if RAS
 
 
 if __name__ == '__main__':

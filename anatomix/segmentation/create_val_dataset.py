@@ -73,8 +73,6 @@ def load_2d_seglists_cases(out_dir):
     for seglist in tqdm(seglists, total=len(seglists)):
         case_num = int(os.path.basename(seglist).split('_')[1].split('.nii.gz')[0])
         label = os.path.basename(seglist).split('_')[-1].split('.seglist')[0]
-        if label in ['trabecularBone', 'ascite']:
-            continue
 
         if case_num not in ts_images_by_case_num:
             ts_images_by_case_num[case_num] = val_transforms_ipl(ts_images_filenames_by_case_num[case_num])
@@ -84,17 +82,30 @@ def load_2d_seglists_cases(out_dir):
 
 
         label_num = labels.get(label, 0) # by default put to background
+        if label_num == 0:
+            continue
 
-        img = cases_masks.get(case_num, np.zeros(mask.shape, dtype=np.int32))
-        img[mask] = label_num
-        cases_masks[case_num] = img
+        case_mask = cases_masks.get(case_num, dict())
+        case_mask[label_num] = mask
+
+        cases_masks[case_num] = case_mask
+
+    # respect the order of squashing labels
+    for case_num, case_mask in tqdm(cases_masks.items(), total=len(cases_masks)):
+        vol = ts_images_by_case_num[case_num].cpu().numpy().squeeze()
+        label = np.zeros(vol.shape, dtype=np.int32)
+        for label_name, label_num in labels.items():
+            label_num = labels.get(label_name, 0)
+            if label_num == 0 or label_num not in case_mask:
+                continue
+            mask = case_mask[label_num]
+            label[mask] = label_num
+        cases_masks[case_num] = label
 
     # verify visually
-    # for case_num, label in tqdm(cases_masks.items(), total=len(cases_masks)):
-    #     vol = ts_images_by_case_num[case_num].cpu().numpy().squeeze()
-    #     viz_mid_axial_slices(vol, label, labels, f"viz/test#{case_num}.png")
-
-
+    for case_num, label in tqdm(cases_masks.items(), total=len(cases_masks)):
+        vol = ts_images_by_case_num[case_num].cpu().numpy().squeeze()
+        viz_mid_axial_slices(vol, label, labels, f"viz/test#{case_num}.png")
 
     # dump niftis
     os.makedirs(out_dir, exist_ok=True)
@@ -118,9 +129,6 @@ def load_2d_seglists_cases(out_dir):
         # input_filenames = {'image': img_path, 'label': label_path}
         # reloaded = val_transforms_ipl_dict(input_filenames)
         # viz_mid_axial_slices(reloaded['image'].cpu().numpy().squeeze(), reloaded['label'].cpu().numpy().squeeze(), labels, f"viz/test#{case_num}.png")
-
-
-
 
 
 

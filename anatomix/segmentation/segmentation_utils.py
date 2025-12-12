@@ -21,6 +21,7 @@ from monai.transforms import (
     RandAxisFlipd,
     EnsureTyped,
     EnsureChannelFirstd,
+    Orientationd
 )
 
 from anatomix.model.network import Unet
@@ -170,6 +171,7 @@ def get_train_transforms(crop_size: tuple=(128,128,128)):
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             EnsureTyped(keys=["image", "label"]),
+            Orientationd(keys=['image','label'], axcodes='RAS'),
             ScaleIntensityd(keys="image"),
             RandSpatialCropd(
                 keys=["image", "label"],

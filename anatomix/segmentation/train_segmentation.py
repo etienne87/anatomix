@@ -397,7 +397,7 @@ if __name__ == "__main__":
         help="Number of training batches per epoch",
     )
     parser.add_argument(
-        '--n_classes', type=int, default=15,
+        '--n_classes', type=int, default=14,
         help="Number of classes to segment. Does not include background class",
     )
     parser.add_argument(
@@ -410,7 +410,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '--crop_size', type=tuple, default=(128,128,48),
+        '--crop_size', type=tuple, default=(160,160,80),
         help="Crop size to train on",
     )
     parser.add_argument(
