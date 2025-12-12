@@ -54,14 +54,21 @@ def load_model(pretrained_ckpt, n_classes, device, freeze_mode):
         Configured model with pretrained weights (if specified) and output layer
     """
     # Initialize base U-Net model
-    model = Unet(3, 1, 16, 4, ngf=16).to(device)
+    model = Unet(3, 1, 16, 5, ngf=16).to(device)
 
     if pretrained_ckpt == 'scratch':
         print("Training from random initialization.")
         pass
     else:
         print("Transferring from proposed pretrained network.")
-        model.load_state_dict(torch.load(pretrained_ckpt))
+        # model.load_state_dict(torch.load(pretrained_ckpt))
+        # partial loading
+        pretrained_dict = torch.load(pretrained_ckpt)
+        model_dict = model.state_dict()
+        pretrained_dict = {k: v for k, v in pretrained_dict.items()
+                        if k in model_dict and v.size() == model_dict[k].size()}
+        model_dict.update(pretrained_dict)
+        model.load_state_dict(model_dict)
 
     if freeze_mode == "backbone":
         print("Freezing backbone weights.")
@@ -180,11 +187,11 @@ def get_train_transforms(crop_size: tuple=(128,128,128)):
                 random_size=False,
             ),
             RandAxisFlipd(["image", "label"], prob=0.15, lazy=True),
-            RandRotate90d(
-                keys=["image", "label"],
-                prob=0.10,
-                max_k=3,
-            ),
+            # RandRotate90d(
+            #     keys=["image", "label"],
+            #     prob=0.10,
+            #     max_k=3,
+            # ),
             RandGaussianNoised(keys=["image"], prob=0.33),
             RandBiasFieldd(
                 keys=["image"], prob=0.33, coeff_range=(0.0, 0.05)

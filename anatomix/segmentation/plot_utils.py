@@ -44,6 +44,39 @@ def add_legends(fig, label_dict):
                bbox_to_anchor=(0.98, 0.5), frameon=True)
 
 
+def add_legends_v2(fig, label_dict, dice_scores=None, dice_threshold=0.7):
+    """
+    Add legend to figure with optional dice scores.
+
+    Args:
+        fig: Matplotlib figure
+        label_dict: Dictionary mapping label names to label values
+        dice_scores: Optional dictionary mapping label names/values to dice scores
+        dice_threshold: Threshold below which to highlight labels (default 0.7)
+    """
+    legend_elements = []
+
+    for label_name, label_val in label_dict.items():
+        if dice_scores is not None:
+            dice = dice_scores.get(label_name, dice_scores.get(label_val, None))
+            if dice is not None:
+                dice_str = f" (Dice: {dice:.3f})"
+                marker = " ⚠️" if dice < dice_threshold else ""
+            else:
+                dice_str = ""
+                marker = ""
+        else:
+            dice_str = ""
+            marker = ""
+
+        legend_elements.append(
+            Patch(facecolor=LABEL_COLORS[label_val % len(LABEL_COLORS)],
+                  label=f'{label_name}{dice_str}{marker}')
+        )
+
+    fig.legend(handles=legend_elements, loc='center right',
+               bbox_to_anchor=(0.98, 0.5), frameon=True)
+
 def ax_viz_mid_slice(ax, slice_vol, slice_mask, label_dict):
     ax.imshow(slice_vol, cmap="gray")
     for _, label_val in label_dict.items():
@@ -62,7 +95,7 @@ def viz_mid_axial_slices(vol, label, labels, filename=None, axis=0):
         vol_slice = np.take(vol, slices[j], axis=axis)
         pred_slice = np.take(label, slices[j], axis=axis)
         ax_viz_mid_slice(ax[j], vol_slice, pred_slice, labels)
-    add_legends(fig, labels)
+    add_legends(fig, labels, dices)
     plt.savefig(filename)
 
 
@@ -175,7 +208,7 @@ def viz_mid_axial_slices_comparison(vol, label_pred, label_gt, labels, filename=
         ax_viz_mid_slice(axes[j, 1], vol_slice, gt_slice, labels)
         axes[j, 1].set_title(f"Slice {slices[j]} - Ground Truth" if j == 0 else "")
 
-    add_legends(fig, labels)
+    add_legends_v2(fig, labels, dices)
 
     if filename is not None:
         plt.savefig(filename, dpi=150, bbox_inches='tight')

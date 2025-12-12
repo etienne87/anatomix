@@ -106,11 +106,6 @@ def main(opt):
         shuffle=True,
     )
 
-    # this is not used?
-    post_trans_pred = Compose(
-        [Activations(softmax=True, dim=1), AsDiscrete(argmax=True, dim=1)]
-    )
-
     # Create UNet, DiceLoss and Adam optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -146,7 +141,7 @@ def main(opt):
                 weight_decay=3e-5,
                 nesterov=True,
             )
-    poly_lr = lambda epoch: (1 - epoch / self.hparams.max_epochs) ** 0.9
+    poly_lr = lambda epoch: (1 - epoch / opt.n_epochs) ** 0.9
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=poly_lr)
 
 
@@ -175,7 +170,6 @@ def main(opt):
         step = 0
         for batch_data in tqdm(train_loader, total=len(train_loader)):
             step += 1
-
 
             inputs = batch_data["image"].to(device)
             labels = batch_data["label"].to(device)
