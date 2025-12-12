@@ -123,7 +123,7 @@ def main(opt):
 
     # Create Dice + CE loss function
     loss_function = monai.losses.DiceCELoss(
-        softmax=True, to_onehot_y=True, include_background=False,
+        softmax=True, to_onehot_y=True, batch=True, include_background=False,
     )
     # Track Dice loss for validation
     valloss_function = monai.losses.DiceLoss(
@@ -131,12 +131,25 @@ def main(opt):
     )
 
     # Create optimizer and scheduler
-    optimizer = torch.optim.Adam(
-        new_model.parameters(), opt.lr, weight_decay=0
-    )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=opt.n_epochs
-    )
+    # optimizer = torch.optim.Adam(
+    #     new_model.parameters(), opt.lr, weight_decay=0
+    # )
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #     optimizer, T_max=opt.n_epochs
+    # )
+
+    # try simple nnUNet method
+    optimizer = torch.optim.SGD(
+                new_model.parameters(),
+                lr=opt.lr,
+                momentum=0.99,
+                weight_decay=3e-5,
+                nesterov=True,
+            )
+    poly_lr = lambda epoch: (1 - epoch / self.hparams.max_epochs) ** 0.9
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=poly_lr)
+
+
     scaler = torch.GradScaler("cuda")
 
     # start a typical PyTorch training
@@ -163,12 +176,13 @@ def main(opt):
         for batch_data in tqdm(train_loader, total=len(train_loader)):
             step += 1
 
-            cm = CutMix(len(batch_data["image"]), alpha=0.5)
+
             inputs = batch_data["image"].to(device)
             labels = batch_data["label"].to(device)
 
             # i had to fix it inside monai 1.5.1!!!
-            inputs, labels = cm(inputs, labels)
+            # cm = CutMix(len(batch_data["image"]), alpha=0.5)
+            # inputs, labels = cm(inputs, labels)
 
             optimizer.zero_grad()
 
