@@ -5,6 +5,7 @@ import os
 import glob
 import json
 import numpy as np
+from tqdm import tqdm
 from deep_learning.load_and_export import loaders
 
 import nibabel as nib
@@ -62,7 +63,7 @@ def load_2d_seglists_cases():
     ts_images_by_case_num = {}
 
     cases_masks = {}
-    for seglist in seglists:
+    for seglist in tqdm(seglists, total=len(seglists)):
         case_num = int(os.path.basename(seglist).split('_')[1].split('.nii.gz')[0])
         label = os.path.basename(seglist).split('_')[-1].split('.seglist')[0]
         if label in ['trabecularBone', 'ascite']:
@@ -73,22 +74,27 @@ def load_2d_seglists_cases():
 
         vol = ts_images_by_case_num[case_num]
         mask = loaders.seglist2mask(seglist, vol.shape[1:])
-        print(vol.shape[1:], mask.shape)
-       
-        label_num = labels.get(label, 0)
+
+
+        label_num = labels.get(label, 0) # by default put to background
 
         img = cases_masks.get(case_num, np.zeros(mask.shape, dtype=np.int32))
         img[mask] = label_num
         cases_masks[case_num] = img
 
+        # print(case_num, np.unique(cases_masks[case_num]))
 
-        # slice_num = np.stack(np.where(img>0), axis=-1)
-        # slices = np.unique(slice_num[:,0])
-        # case_slices[case_num] = slices
+    from plot_utils import viz_mid_axial_slices
 
-        # viz
-        # mip = img.max(axis=0)
-        # plt.imsave(f"viz/test#{case_num}.png", mip, cmap='tab20')
+    for case_num, label in cases_masks.items():
+        # print(case_num, np.unique(cases_masks[case_num]))
+
+        vol = ts_images_by_case_num[case_num].cpu().numpy().squeeze()
+
+        viz_mid_axial_slices(vol, label, labels, f"viz/test#{case_num}.png")
+
+        breakpoint()
+        #plt.imsave(f"viz/test#{case_num}.png", mip, cmap='tab20')
 
 
 

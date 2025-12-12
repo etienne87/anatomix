@@ -17,13 +17,13 @@ from monai.transforms import (
 
 from plot_utils import viz_mid_slices
 
+def natural_sort_key(s):
+    """Sort strings containing numbers in natural order"""
+    return [int(text) if text.isdigit() else text.lower()
+            for text in re.split('([0-9]+)', s)]
+
 
 def find_and_sort_files(basedir):
-    def natural_sort_key(s):
-        """Sort strings containing numbers in natural order"""
-        return [int(text) if text.isdigit() else text.lower()
-                for text in re.split('([0-9]+)', s)]
-
     # Load all training image and segmentation paths
     trimages = sorted(
         glob(
@@ -122,6 +122,8 @@ def viz(dataset):
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             EnsureTyped(keys=["image", "label"]),
+            # Orientationd(keys=["image", "label"], axcodes='IPL'),
+            # Spacingd(keys=["image", "label"], pixdim=[1,1,1]),
         ]
     )
 
@@ -133,8 +135,6 @@ def viz(dataset):
 
     os.makedirs('viz', exist_ok=True)
     for idx, data in enumerate(tqdm.tqdm(dataset, total=len(dataset))):
-
-
         img = data['image'].cpu().numpy().squeeze()
         lab = data['label'].cpu().numpy().squeeze()
         viz_mid_slices(img, lab, labels, filename=f"viz/test#{idx}.png")

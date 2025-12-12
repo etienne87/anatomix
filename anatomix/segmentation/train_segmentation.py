@@ -114,7 +114,7 @@ def main(opt):
         opt.pretrained_ckpt,
         opt.n_classes,
         device,
-        freeze_mode="stem",
+        freeze_mode="none",
     )
 
     # Create Dice + CE loss function
@@ -406,7 +406,7 @@ if __name__ == "__main__":
         help="Batch size to train with",
     )
     parser.add_argument(
-        '--train_amount', type=int, default=3,
+        '--train_amount', type=int, default=14,
         help="No. of training samples to use for few-shot training",
     )
     parser.add_argument(

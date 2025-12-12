@@ -266,6 +266,7 @@ def data_handler(
     trimages = np.random.RandomState(seed=seed).permutation(trimages).tolist()
     trsegs = np.random.RandomState(seed=seed).permutation(trsegs).tolist()
 
+
     # dumb check for file mismatches
     # import tqdm
     # for img, lab in tqdm.tqdm(zip(trimages, trsegs), total=len(trimages)):
@@ -276,12 +277,13 @@ def data_handler(
     #         continue
 
     # Select val from the rest
-    vaimages = trimages[finetuning_amount:]
-    vasegs = trsegs[finetuning_amount:]
 
     # Select train from the beginning
-    trimages = trimages[:finetuning_amount]
-    trsegs = trsegs[:finetuning_amount]
+    trimages = trimages
+    trsegs = trsegs
+
+    vaimages = trimages
+    vasegs = trsegs
 
 
     # I don't have any validation data for now, so commenting this out

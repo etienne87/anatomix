@@ -36,6 +36,34 @@ def create_colors(n_labels):
 LABEL_COLORS = create_colors(50)  # Support up to 50 labels
 
 
+def add_legends(fig, label_dict):
+    legend_elements = [Patch(facecolor=LABEL_COLORS[label_val % len(LABEL_COLORS)],
+                            label=f'{label_name}')
+                      for label_name, label_val in label_dict.items()]
+    fig.legend(handles=legend_elements, loc='center right',
+               bbox_to_anchor=(0.98, 0.5), frameon=True)
+
+
+def ax_viz_mid_slice(ax, slice_vol, slice_mask, label_dict):
+    ax.imshow(slice_vol, cmap="gray")
+    for _, label_val in label_dict.items():
+        # Create binary mask for this label
+        label_mask = (slice_mask == label_val).astype(float)
+        if np.any(label_mask):  # Only draw if label exists in this slice
+            color = LABEL_COLORS[label_val % len(LABEL_COLORS)]
+            ax.contour(label_mask, levels=[0.5], colors=color, linewidths=0.5)
+
+
+def viz_mid_axial_slices(vol, label, labels, filename=None):
+    slice_num = np.stack(np.where(label>0), axis=-1)
+    slices = np.unique(slice_num[:,0])
+    fig, ax = plt.subplots(len(slices),1, figsize=(5*len(slices), 7))
+    for j in range(len(slices)):
+        ax_viz_mid_slice(ax[j], vol[slices[j]], label[slices[j]], labels)
+    add_legends(fig, labels)
+    plt.savefig(filename)
+
+
 
 def viz_mid_slices(vol, mask, labels=None, filename=None, writer=None, tag="", global_step=0):
     assert vol.shape == mask.shape
@@ -62,7 +90,7 @@ def viz_mid_slices(vol, mask, labels=None, filename=None, writer=None, tag="", g
 
         ax[i].imshow(slice_vol, cmap="gray")
 
-        for label_name, label_val in label_dict.items():
+        for __, label_val in label_dict.items():
             # Create binary mask for this label
             label_mask = (slice_mask == label_val).astype(float)
             if np.any(label_mask):  # Only draw if label exists in this slice
