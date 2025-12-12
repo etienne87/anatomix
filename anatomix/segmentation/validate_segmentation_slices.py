@@ -35,6 +35,9 @@ from monai.transforms import (
     ScaleIntensityd,
 )
 
+from monai.transforms import Resize
+
+
 from plot_utils import viz_mid_slices, viz_mid_axial_slices_comparison
 
 
@@ -88,9 +91,12 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
             EnsureTyped(keys=['image','label']),
             Orientationd(keys=['image','label'], axcodes='RAS'),
             Spacingd(keys=["image", "label"], mode=('bilinear', 'nearest'), pixdim=[1.5,1.5,3]),
+            #Spacingd(keys=["image"], mode='bilinear', pixdim=[1.5, 1.5, 3]), # do not resize the labels
             ScaleIntensityd(keys="image")
         ]
     )
+
+
 
 
     roi_size = (128,128,48)
@@ -106,7 +112,8 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
         shuffle=True
     )
 
-    checkpoint_filepath = glob.glob(f'finetuning_runs/checkpoints/{exp_name}/best_dict*.pth')[0]
+    checkpoint_filepath = glob.glob(f'finetuning_runs/checkpoints/{exp_name}/best_dict*.pth')[-1]
+    print(checkpoint_filepath)
     new_model = load_model(
         "scratch",
         15,
@@ -131,10 +138,14 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
             val_labels = val_data["label"].to(device)
 
             sw_batch_size = 4
-            val_outputs = sliding_window_inference(
+            val_outputs = tta_sliding_window_inference(
                 val_images, roi_size, sw_batch_size,
                 new_model, overlap=0.7,
             )
+
+            # val_outputs = torch.nn.functional.interpolate(val_outputs, size=val_labels.shape[2:], mode='trilinear')
+            # val_images = torch.nn.functional.interpolate(val_images, size=val_labels.shape[2:], mode='trilinear')
+
 
             # select only correct slices
             annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,2])
