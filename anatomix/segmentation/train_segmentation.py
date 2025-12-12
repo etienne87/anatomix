@@ -35,6 +35,9 @@ from anatomix.segmentation.segmentation_utils import (
     data_handler,
 )
 
+from monai.transforms import (
+    CutMix
+)
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
@@ -58,6 +61,8 @@ def main(opt):
 
     dataset_json = json.load(open(os.path.join(opt.dataset, 'dataset.json')))
     labels_list = dataset_json['labels']
+
+    assert opt.n_classes == len(labels_list)
 
     print('Training cache: {} images {} segs'.format(len(trimages), len(trsegs)))
     print('Validation set: {} images {} segs'.format(len(vaimages), len(vasegs)))
@@ -147,6 +152,7 @@ def main(opt):
     )
     print("amp enabled: ", amp_enabled)
 
+
     # Training loop
     for epoch in range(opt.n_epochs):
         print("-" * 10)
@@ -157,8 +163,12 @@ def main(opt):
         for batch_data in tqdm(train_loader, total=len(train_loader)):
             step += 1
 
+            cm = CutMix(len(batch_data["image"]), alpha=0.5)
             inputs = batch_data["image"].to(device)
             labels = batch_data["label"].to(device)
+
+            # i had to fix it inside monai 1.5.1!!!
+            inputs, labels = cm(inputs, labels)
 
             optimizer.zero_grad()
 
@@ -410,7 +420,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '--crop_size', type=tuple, default=(160,160,80),
+        '--crop_size', type=tuple, default=(160,160,64),
         help="Crop size to train on",
     )
     parser.add_argument(

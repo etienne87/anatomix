@@ -209,6 +209,7 @@ def get_train_transforms(crop_size: tuple=(128,128,128)):
                 spatial_size=crop_size,
                 padding_mode='zeros',
             ),
+            #Rand3DElasticd(keys=["image", "label"], sigma_range=(5, 7),magnitude_range=(50, 150),  mode=("bilinear", "nearest"), prob=0.5),
             ScaleIntensityd(keys="image"),
         ]
     )
