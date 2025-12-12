@@ -16,6 +16,7 @@ from monai.data import list_data_collate
 
 from monai.inferers import sliding_window_inference
 from anatomix.segmentation.plot_utils import viz_mid_slices, viz_mid_axial_slices
+from monai.transforms import KeepLargestConnectedComponent
 
 from tqdm import tqdm
 
@@ -35,7 +36,8 @@ from monai.transforms import (
     ScaleIntensityd,
 )
 
-from monai.transforms import Resize
+from monai.metrics import DiceMetric
+from monai.transforms import AsDiscrete
 
 
 from plot_utils import viz_mid_slices, viz_mid_axial_slices_comparison, viz_mid_slices_by_dice
@@ -132,6 +134,14 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
     )
 
 
+    keep_largest = KeepLargestConnectedComponent(
+        applied_labels=[7, 9, 10, 11, 12],  # liver, heart, spleen, kidneys (adjust indices)
+        is_onehot=False,
+        connectivity=None,  # 26-connectivity in 3D
+    )
+
+    # to_one_hot = AsDiscrete(to_onehot=len(labels_list))
+
     roi_size = (160,160,80)
     device = 'cuda:0'
 
@@ -155,8 +165,13 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
     )
     new_model.load_state_dict(torch.load(checkpoint_filepath, weights_only=True))
     new_model.eval()
-    valloss_function = monai.losses.DiceLoss(softmax=True, to_onehot_y=True, include_background=False, reduction="none")
-
+    #valloss_function = monai.losses.DiceLoss(softmax=True, to_onehot_y=True, include_background=False, reduction="none")
+    dice_metric = DiceMetric(
+        include_background=False,
+        reduction="none",  # or "none" for per-sample
+        get_not_nans=False,
+        num_classes=15  # ← Add this if it helps
+    )
     dataset_json = json.load(open(os.path.join(dataset, 'dataset.json')))
     labels_list = dataset_json['labels']
 
@@ -180,53 +195,43 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
 
             val_outputs = tta_no_sliding_window_inference(val_images, new_model)
 
-
             # Put Back prediction and image back to original pixdim
             val_outputs = torch.nn.functional.interpolate(val_outputs, size=val_labels.shape[2:], mode='trilinear')
             val_images = torch.nn.functional.interpolate(val_images, size=val_labels.shape[2:], mode='trilinear')
 
+            val_outputs_argmax = val_outputs.argmax(dim=1, keepdim=True)
+            val_outputs_argmax = keep_largest(val_outputs_argmax)
 
             # select only correct slices
             annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,2])
-            subvol_val_labels = val_labels[:,:,:,:,annotated_slices]
-            subvol_val_outputs = val_outputs[:,:,:,:,annotated_slices]
-
-            dices = 1-valloss_function(subvol_val_outputs, subvol_val_labels).squeeze()
-            dices = dices.cpu().numpy()
+            subvol_val_labels = val_labels[...,annotated_slices]
+            subvol_val_outputs = val_outputs_argmax[...,annotated_slices]
 
 
-            if dices.mean() == 1:
-                print(val_labels.sum().item())
-                breakpoint()
+            dice_metric(y_pred=subvol_val_outputs, y=subvol_val_labels)
+            # Get per-class dice for this sample
+            dices = dice_metric.aggregate()[0].cpu().numpy().squeeze()
+            dice_metric.reset()  # Reset for next sample
+
 
             case_dices = {'case': f'case_{i}'}
             for label_name, idx in labels_list.items():
                 if idx == 0:
                     continue
                 dice_value = dices[idx-1]
-                # if dice_value < 0.1:
-                #     print(label_name, (subvol_val_labels==idx).sum())
-                #     lab = (subvol_val_labels==idx).cpu().numpy().squeeze()
-                #     pred =(subvol_val_outputs.argmax(dim=1)==idx).cpu().numpy().squeeze()
-                #     fig, ax = plt.subplots(1)
-                #     ax.imshow(lab[...,0])
-                #     ax.contour(pred[...,0], levels=0, color='red')
-                #     plt.show()
-                #     plt.savefig('test.png')
-                #     plt.close()
-                #     breakpoint()
+                if np.isnan(dice_value):
+                    dice_value = 1.0
                 case_dices[label_name] = dice_value
                 print(f"{label_name}: Dice {dice_value:.4f}")
-
             all_dices += [case_dices]
 
             if viz:
                 img = val_images[0,0].cpu().numpy()
-                labels_pred = val_outputs.argmax(dim=1)[0].cpu().numpy()
+                labels_pred = val_outputs_argmax.cpu().numpy().squeeze()
                 labels_gt = val_labels.cpu().numpy().squeeze()
                 print("num annotated slices: ", len(annotated_slices))
                 if len(annotated_slices) < 5 and len(annotated_slices) > 0:
-                    viz_mid_axial_slices_comparison(img, labels_pred, labels_gt, labels_list,  filename=f'{demo_dir}/demo_output_sample{i}_image_output.png', axis=2) # take axis=2 if RAS
+                    viz_mid_axial_slices_comparison(img, labels_pred, labels_gt, labels_list,  filename=f'{demo_dir}/demo_output_sample{i}_image_output.png', axis=2, dices=case_dices) # take axis=2 if RAS
                 else:
                     viz_mid_slices(
                         img,
