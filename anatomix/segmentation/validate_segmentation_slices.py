@@ -3,10 +3,9 @@
 import logging
 import json
 import os
-import sys
-import argparse
 import numpy as np
 import torch
+import pandas as pd
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -89,10 +88,13 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
     demo_dir = f'finetuning_runs/demo_outputs/{exp_name}/'
     os.makedirs(demo_dir, exist_ok=True)
 
+    all_dices = []
+
     with torch.no_grad():
         for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
             val_images = val_data["image"].to(device)
             val_labels = val_data["label"].to(device)
+
             roi_size = (crop_size, crop_size, crop_size)
             sw_batch_size = 4
             val_outputs = sliding_window_inference(
@@ -100,6 +102,22 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
                 new_model, overlap=0.7,
             )
 
+            # select only correct slices
+            annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,0])
+            subvol_val_labels = val_labels[:,:,annotated_slices]
+            subvol_val_outputs = val_outputs[:,:,annotated_slices]
+
+            dices = 1-valloss_function(subvol_val_outputs, subvol_val_labels).squeeze()
+            dices = dices.cpu().numpy()
+            case_dices = {'case': f'case_{i}'}
+            for label_name, idx in labels_list.items():
+                if idx == 0:
+                    continue
+                dice_value = dices[idx-1]
+                case_dices[label_name] = dice_value
+                print(f"{label_name}: Dice {dice_value:.4f}")
+
+            all_dices += [case_dices]
 
 
             if viz:
@@ -110,6 +128,19 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
                     labels,
                     labels_list,
                     filename=f'{demo_dir}/demo_output_sample{i}_image_output.png')
+
+    df = pd.DataFrame(all_dices)
+    # Calculate average row
+    avg_row = {'case': 'average'}
+    for col in df.columns:
+        if col != 'case':
+            avg_row[col] = df[col].mean()
+    # Insert average as first row
+    df = pd.concat([pd.DataFrame([avg_row]), df], ignore_index=True)
+    # Save to CSV
+    csv_path = f'{demo_dir}/dice_scores.csv'
+    df.to_csv(csv_path, index=False, float_format='%.4f')
+    print(f"Saved dice scores to {csv_path}")
 
 
 if __name__ == '__main__':
