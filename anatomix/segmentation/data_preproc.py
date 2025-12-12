@@ -32,9 +32,16 @@ def save_json(dataset_path, labels, num):
 
 
 
-def preproc(dataset, out_dir, res=[3,1.5,1.5]):
+def preproc(dataset, out_dir, res=[3,1.5,1.5], mode='test'):
 
-    images, segs = find_and_sort_files(dataset, 'test')
+    images, segs = find_and_sort_files(dataset, mode)
+
+    # check pixdim
+    # import nibabel as nib
+    # for img in images:
+    #     img = nib.load(img)
+    #     print(img.header.get_zooms())
+    #     breakpoint()
 
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(images, segs)
@@ -45,7 +52,7 @@ def preproc(dataset, out_dir, res=[3,1.5,1.5]):
             EnsureChannelFirstd(keys=["image", "label"]),
             EnsureTyped(keys=["image", "label"]),
             Orientationd(keys=["image", "label"], axcodes='IPL'),
-            Spacingd(keys=["image", "label"], pixdim=res),
+            Spacingd(keys=["image", "label"], mode=('bilinear', 'nearest'), pixdim=res),
         ]
     )
 
@@ -88,8 +95,8 @@ def preproc(dataset, out_dir, res=[3,1.5,1.5]):
             viz_mid_slices(img, lab, filename="test.png")
 
 
-def viz(dataset, mode='test'):
-    images, segs = find_and_sort_files(dataset, mode)
+def viz(dataset_path, mode='test'):
+    images, segs = find_and_sort_files(dataset_path, mode)
 
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(images, segs)
@@ -100,22 +107,21 @@ def viz(dataset, mode='test'):
             EnsureChannelFirstd(keys=["image", "label"]),
             EnsureTyped(keys=["image", "label"]),
             # Orientationd(keys=["image", "label"], axcodes='IPL'),
-            # Spacingd(keys=["image", "label"], pixdim=[1,1,1]),
+            # Spacingd(keys=["image", "label"], mode=('bilinear', 'nearest'), pixdim=[3,1.5,1.5]),
         ]
     )
 
-    dataset_json = json.load(open(os.path.join(dataset, 'dataset.json')))
+    dataset_json = json.load(open(os.path.join(dataset_path, 'dataset.json')))
     labels = dataset_json['labels']
 
     dataset = monai.data.Dataset(data=val_files, transform=transforms)
-
 
     os.makedirs('viz', exist_ok=True)
     for idx, data in enumerate(tqdm.tqdm(dataset, total=len(dataset))):
         img = data['image'].cpu().numpy().squeeze()
         lab = data['label'].cpu().numpy().squeeze()
-        # viz_mid_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
-        viz_mid_axial_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
+        viz_mid_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
+        # viz_mid_axial_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
 
 
 if __name__ == '__main__':

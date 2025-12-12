@@ -66,8 +66,8 @@ def tta_sliding_window_inference(inputs, roi_size, sw_batch_size, model, overlap
 
 
 
-def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_name='baseline_mr', viz=False):
-    images, segs = find_and_sort_files(dataset, 'test')
+def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_name='baseline_mr', viz=False, mode='test'):
+    images, segs = find_and_sort_files(dataset, mode)
 
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(images, segs)
@@ -79,8 +79,7 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
             EnsureChannelFirstd(keys=['image','label']),
             EnsureTyped(keys=['image','label']),
             Orientationd(keys=['image','label'], axcodes='IPL'),
-            Spacingd(keys=["image", "label"], pixdim=[3,1.5,1.5]),
-            #Orientationd(keys=['image','label'], axcodes='RAS'),
+            Spacingd(keys=["image", "label"], mode=('bilinear', 'nearest'), pixdim=[3,1.5,1.5]),
             ScaleIntensityd(keys="image")
         ]
     )
