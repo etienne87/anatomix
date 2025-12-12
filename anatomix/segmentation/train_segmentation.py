@@ -196,13 +196,20 @@ def main(opt):
                 for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
                     val_images = val_data["image"].to(device)
                     val_labels = val_data["label"].to(device)
-                    roi_size = (opt.crop_size, opt.crop_size, opt.crop_size)
+                    roi_size = opt.crop_size
                     sw_batch_size = 4
                     val_outputs = sliding_window_inference(
                         val_images, roi_size, sw_batch_size,
                         new_model, overlap=0.7,
                     )
-                    val_loss += valloss_function(val_outputs, val_labels)
+
+                    # handle partial annots
+                    annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,0])
+                    subvol_val_labels = val_labels[:,:,annotated_slices]
+                    subvol_val_outputs = val_outputs[:,:,annotated_slices]
+                    val_loss += valloss_function(subvol_val_outputs, subvol_val_labels)
+
+                    #val_loss += valloss_function(val_outputs, val_labels)
                     valstep += 1
                     if i > MAX_VAL_BATCHES:
                         break
@@ -332,7 +339,13 @@ def val(opt):
                 new_model, overlap=0.7,
             )
 
-            dices = 1-valloss_function(val_outputs, val_labels).squeeze()
+            # handle partial annots
+            annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,0])
+            subvol_val_labels = val_labels[:,:,annotated_slices]
+            subvol_val_outputs = val_outputs[:,:,annotated_slices]
+            dices = 1-valloss_function(subvol_val_outputs, subvol_val_labels).squeeze()
+
+            #dices = 1-valloss_function(val_outputs, val_labels).squeeze()
             dices = dices.cpu().numpy()
             case_dices = {'case': f'case_{i}'}
             for label_name, idx in labels_list.items():
@@ -406,7 +419,7 @@ if __name__ == "__main__":
             ]
     """
     parser.add_argument(
-        '--crop_size', type=int, default=128,
+        '--crop_size', type=list, default=[128,128,128],
         help="Crop size to train on",
     )
     parser.add_argument(

@@ -39,6 +39,32 @@ from plot_utils import viz_mid_slices, viz_mid_axial_slices
 
 
 
+def tta_sliding_window_inference(inputs, roi_size, sw_batch_size, model, overlap=0.7, flips=None):
+    """
+    Run sliding_window_inference with simple flip-based TTA and average logits.
+    inputs: tensor (B,C,H,W,D)
+    flips: list of tuples of spatial axes to flip (use axes 2,3,4 for H,W,D).
+           default = 8 combinations: no-flip + all axis flips.
+    Returns averaged logits tensor.
+    """
+    if flips is None:
+        flips = [(), (2,), (3,), (4,), (2,3), (2,4), (3,4), (2,3,4)]
+    agg = None
+    n = 0
+    for f in flips:
+        if f:
+            inp = torch.flip(inputs, dims=f)
+        else:
+            inp = inputs
+        out = sliding_window_inference(inp, roi_size, sw_batch_size, model, overlap=overlap)
+        if f:
+            out = torch.flip(out, dims=f)  # inverse transform
+        out = out.detach().float()
+        agg = out if agg is None else agg + out
+        n += 1
+    return agg / float(n)
+
+
 
 def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_name='baseline_mr', viz=False):
     images, segs = find_and_sort_files(dataset, 'test')
@@ -54,7 +80,7 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
             EnsureTyped(keys=['image','label']),
             Orientationd(keys=['image','label'], axcodes='IPL'),
             Spacingd(keys=["image", "label"], pixdim=[3,1.5,1.5]),
-            Orientationd(keys=['image','label'], axcodes='RAS'),
+            #Orientationd(keys=['image','label'], axcodes='RAS'),
             ScaleIntensityd(keys="image")
         ]
     )

@@ -15,31 +15,8 @@ from monai.transforms import (
     SaveImaged
 )
 
-from plot_utils import viz_mid_slices
-
-def natural_sort_key(s):
-    """Sort strings containing numbers in natural order"""
-    return [int(text) if text.isdigit() else text.lower()
-            for text in re.split('([0-9]+)', s)]
-
-
-def find_and_sort_files(basedir):
-    # Load all training image and segmentation paths
-    trimages = sorted(
-        glob(
-            os.path.join(basedir, './imagesTr/*.nii.gz'),
-        ),
-        key=natural_sort_key
-    )
-    trsegs = sorted(
-        glob(
-            os.path.join(basedir, './labelsTr/*.nii.gz'),
-        ),
-        key=natural_sort_key
-    )
-    return trimages, trsegs
-
-
+from plot_utils import viz_mid_slices, viz_mid_axial_slices
+from segmentation_utils import find_and_sort_files
 
 def save_json(dataset_path, labels, num):
     data_dict = {
@@ -57,7 +34,7 @@ def save_json(dataset_path, labels, num):
 
 def preproc(dataset, out_dir, res=[3,1.5,1.5]):
 
-    images, segs = find_and_sort_files(dataset)
+    images, segs = find_and_sort_files(dataset, 'test')
 
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(images, segs)
@@ -84,14 +61,14 @@ def preproc(dataset, out_dir, res=[3,1.5,1.5]):
         [
             SaveImaged(
                 keys=["image"],
-                output_dir=os.path.join(out_dir, 'imagesTr'),
+                output_dir=os.path.join(out_dir, 'imagesTs'),
                 output_postfix="",
                 resample=False,
                 separate_folder=False,
             ),
             SaveImaged(
                 keys=["label"],
-                output_dir=os.path.join(out_dir, 'labelsTr'),
+                output_dir=os.path.join(out_dir, 'labelsTs'),
                 output_postfix="",
                 resample=False,
                 separate_folder=False,
@@ -111,8 +88,8 @@ def preproc(dataset, out_dir, res=[3,1.5,1.5]):
             viz_mid_slices(img, lab, filename="test.png")
 
 
-def viz(dataset):
-    images, segs = find_and_sort_files(dataset)
+def viz(dataset, mode='test'):
+    images, segs = find_and_sort_files(dataset, mode)
 
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(images, segs)
@@ -137,7 +114,8 @@ def viz(dataset):
     for idx, data in enumerate(tqdm.tqdm(dataset, total=len(dataset))):
         img = data['image'].cpu().numpy().squeeze()
         lab = data['label'].cpu().numpy().squeeze()
-        viz_mid_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
+        # viz_mid_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
+        viz_mid_axial_slices(img, lab, labels, filename=f"viz/test#{idx}.png")
 
 
 if __name__ == '__main__':
