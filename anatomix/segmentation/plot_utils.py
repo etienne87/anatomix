@@ -135,3 +135,49 @@ def viz_mid_slices(vol, mask, labels=None, filename=None, writer=None, tag="", g
         plt.show()
 
     plt.close()
+
+
+
+
+def viz_mid_axial_slices_comparison(vol, label_pred, label_gt, labels, filename=None, axis=0):
+    """
+    Visualize predicted and ground truth labels side by side for all axial slices containing labels.
+
+    Args:
+        vol: 3D volume array
+        label_pred: 3D predicted segmentation mask
+        label_gt: 3D ground truth segmentation mask
+        labels: Label dictionary
+        filename: Optional filename to save the figure
+    """
+    # Get slices that contain either prediction or ground truth labels
+    slice_num_gt = np.stack(np.where(label_gt > 0), axis=-1)
+    slices_gt = np.unique(slice_num_gt[:, axis]) if len(slice_num_gt) > 0 else []
+    slices = np.unique(np.concatenate([slices_gt]))
+
+    fig, axes = plt.subplots(len(slices), 2, figsize=(16, 8*len(slices)))
+
+    # Handle case of single slice
+    if len(slices) == 1:
+        axes = axes.reshape(1, -1)
+
+    for j in range(len(slices)):
+        # Prediction column
+        vol_slice = np.take(vol, slices[j], axis=axis)
+        pred_slice = np.take(label_pred, slices[j], axis=axis)
+        gt_slice = np.take(label_gt, slices[j], axis=axis)
+        ax_viz_mid_slice(axes[j, 0], vol_slice, pred_slice, labels)
+        axes[j, 0].set_title(f"Slice {slices[j]} - Prediction" if j == 0 else "")
+
+        # Ground truth column
+        ax_viz_mid_slice(axes[j, 1], vol_slice, gt_slice, labels)
+        axes[j, 1].set_title(f"Slice {slices[j]} - Ground Truth" if j == 0 else "")
+
+    add_legends(fig, labels)
+
+    if filename is not None:
+        plt.savefig(filename, dpi=150, bbox_inches='tight')
+    else:
+        plt.show()
+
+    plt.close()

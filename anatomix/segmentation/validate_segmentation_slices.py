@@ -6,6 +6,7 @@ import os
 import numpy as np
 import torch
 import pandas as pd
+import glob
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -14,7 +15,7 @@ from monai.transforms import Compose, Activations, AsDiscrete
 from monai.data import list_data_collate
 
 from monai.inferers import sliding_window_inference
-from anatomix.segmentation.plot_utils import viz_mid_slices
+from anatomix.segmentation.plot_utils import viz_mid_slices, viz_mid_axial_slices
 
 from tqdm import tqdm
 
@@ -34,7 +35,7 @@ from monai.transforms import (
     ScaleIntensityd,
 )
 
-from plot_utils import viz_mid_slices, viz_mid_axial_slices
+from plot_utils import viz_mid_slices, viz_mid_axial_slices_comparison
 
 
 
@@ -66,25 +67,33 @@ def tta_sliding_window_inference(inputs, roi_size, sw_batch_size, model, overlap
 
 
 
-def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_name='baseline_mr', viz=False, mode='test'):
+def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_name='baseline_mr_v2', viz=False, mode='test'):
     images, segs = find_and_sort_files(dataset, mode)
 
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(images, segs)
     ]
 
+    # this code confirms that baseline_mr_val is NOT preproc
+    # import nibabel as nib
+    # for img in images:
+    #     img = nib.load(img)
+    #     print(img.header.get_zooms())
+    #     breakpoint()
+
     val_transforms = Compose(
         [
             LoadImaged(keys=['image','label']),
             EnsureChannelFirstd(keys=['image','label']),
             EnsureTyped(keys=['image','label']),
-            Orientationd(keys=['image','label'], axcodes='IPL'),
-            Spacingd(keys=["image", "label"], mode=('bilinear', 'nearest'), pixdim=[3,1.5,1.5]),
+            Orientationd(keys=['image','label'], axcodes='RAS'),
+            Spacingd(keys=["image", "label"], mode=('bilinear', 'nearest'), pixdim=[1.5,1.5,3]),
             ScaleIntensityd(keys="image")
         ]
     )
 
-    crop_size = 128
+
+    roi_size = (128,128,48)
     device = 'cuda:0'
 
     val_ds = monai.data.Dataset(data=val_files, transform=val_transforms)
@@ -97,7 +106,7 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
         shuffle=True
     )
 
-    checkpoint_filepath = f'finetuning_runs/checkpoints/{exp_name}/best_dict_epoch0444.pth'
+    checkpoint_filepath = glob.glob(f'finetuning_runs/checkpoints/{exp_name}/best_dict*.pth')[0]
     new_model = load_model(
         "scratch",
         15,
@@ -121,7 +130,6 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
             val_images = val_data["image"].to(device)
             val_labels = val_data["label"].to(device)
 
-            roi_size = (crop_size, crop_size, crop_size)
             sw_batch_size = 4
             val_outputs = sliding_window_inference(
                 val_images, roi_size, sw_batch_size,
@@ -129,12 +137,16 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
             )
 
             # select only correct slices
-            annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,0])
-            subvol_val_labels = val_labels[:,:,annotated_slices]
-            subvol_val_outputs = val_outputs[:,:,annotated_slices]
+            annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,2])
+            subvol_val_labels = val_labels[:,:,:,:,annotated_slices]
+            subvol_val_outputs = val_outputs[:,:,:,:,annotated_slices]
 
             dices = 1-valloss_function(subvol_val_outputs, subvol_val_labels).squeeze()
             dices = dices.cpu().numpy()
+
+            if dices.mean() == 1:
+                print(val_labels.sum().item())
+
             case_dices = {'case': f'case_{i}'}
             for label_name, idx in labels_list.items():
                 if idx == 0:
@@ -145,15 +157,19 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
 
             all_dices += [case_dices]
 
-
             if viz:
                 img = val_images[0,0].cpu().numpy()
-                labels = val_outputs.argmax(dim=1)[0].cpu().numpy()
-                viz_mid_slices(
-                    img,
-                    labels,
-                    labels_list,
-                    filename=f'{demo_dir}/demo_output_sample{i}_image_output.png')
+                labels_pred = val_outputs.argmax(dim=1)[0].cpu().numpy()
+                labels_gt = val_labels.cpu().numpy().squeeze()
+
+                if len(annotated_slices) < 5 and len(annotated_slices) > 0:
+                    viz_mid_axial_slices_comparison(img, labels_pred, labels_gt, labels_list,  filename=f'{demo_dir}/demo_output_sample{i}_image_output.png', axis=2) # take axis=2 if RAS
+                else:
+                    viz_mid_slices(
+                        img,
+                        labels_pred,
+                        labels_list,
+                        filename=f'{demo_dir}/demo_output_sample{i}_image_output.png')
 
     df = pd.DataFrame(all_dices)
     # Calculate average row

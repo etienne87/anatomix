@@ -188,6 +188,7 @@ def get_train_transforms(crop_size: tuple=(128,128,128)):
                 prob=0.33,
                 sigma_x=(0.0, 0.1), sigma_y=(0.0, 0.1), sigma_z=(0.0, 0.1),
             ),
+
             RandGaussianSharpend(keys=["image"], prob=0.33),
             RandAffined(
                 keys=["image", "label"],
