@@ -104,9 +104,6 @@ def load_2d_seglists_cases(out_dir):
     for case_num, label in tqdm(cases_masks.items(), total=len(cases_masks)):
         vol = ts_images_by_case_num[case_num]
 
-        label_monai = deepcopy(vol)
-        label_monai[...] = torch.from_numpy(label)
-
         affine = vol.meta['affine'].numpy()
 
         img_path = os.path.join(out_dir, 'imagesTs', f'amos_{case_num:04d}.nii.gz')

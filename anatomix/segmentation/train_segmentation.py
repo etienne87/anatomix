@@ -38,7 +38,7 @@ from anatomix.segmentation.segmentation_utils import (
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
-MAX_VAL_BATCHES = 10
+MAX_VAL_BATCHES = 14
 
 def main(opt):
     os.makedirs(
@@ -300,13 +300,12 @@ def val(opt):
         opt.pretrained_ckpt,
         opt.n_classes,
         device,
-        freeze_backbone=False,
-        freeze_encoder=False
+        freeze_mode='none',
     )
 
     dir_save = f'finetuning_runs'
 
-    checkpoint_filepath = f'{dir_save}/checkpoints/{opt.exp_name}/best_dict_epoch0496.pth'
+    checkpoint_filepath = f'{dir_save}/checkpoints/{opt.exp_name}/best_dict_epoch0444.pth'
     new_model.load_state_dict(torch.load(checkpoint_filepath, weights_only=True))
     new_model.eval()
 
@@ -397,6 +396,15 @@ if __name__ == "__main__":
         '--lr', type=float, default=2e-4,
         help="Adam step size",
     )
+
+    """optimized patch_size by nnUNet
+
+    "patch_size": [
+                48,
+                160,
+                224
+            ]
+    """
     parser.add_argument(
         '--crop_size', type=int, default=128,
         help="Crop size to train on",

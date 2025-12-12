@@ -54,6 +54,7 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
             EnsureTyped(keys=['image','label']),
             Orientationd(keys=['image','label'], axcodes='IPL'),
             Spacingd(keys=["image", "label"], pixdim=[3,1.5,1.5]),
+            Orientationd(keys=['image','label'], axcodes='RAS'),
             ScaleIntensityd(keys="image")
         ]
     )

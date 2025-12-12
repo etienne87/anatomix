@@ -57,7 +57,9 @@ def ax_viz_mid_slice(ax, slice_vol, slice_mask, label_dict):
 def viz_mid_axial_slices(vol, label, labels, filename=None):
     slice_num = np.stack(np.where(label>0), axis=-1)
     slices = np.unique(slice_num[:,0])
-    fig, ax = plt.subplots(len(slices),1, figsize=(5*len(slices), 7))
+    fig, ax = plt.subplots(len(slices),1, figsize=(8*len(slices), 10))
+    if not isinstance(ax, list):
+        ax = [ax]
     for j in range(len(slices)):
         ax_viz_mid_slice(ax[j], vol[slices[j]], label[slices[j]], labels)
     add_legends(fig, labels)

@@ -154,7 +154,14 @@ def get_train_transforms(crop_size):
         A composed transform object containing the specified
         transformations for the training dataset.
     """
+    if isinstance(crop_size, int):
+        crop_size = (crop_size,)*3
 
+    # is this pipeline optimal?
+    # Initial Crop should be larger than crop size
+    # Should Add Random Flips
+    # Should Add Random Elastic Deformation
+    # => close match to nnUNet
     train_transforms = Compose(
         [
             LoadImaged(keys=["image", "label"]),
@@ -163,7 +170,7 @@ def get_train_transforms(crop_size):
             ScaleIntensityd(keys="image"),
             RandSpatialCropd(
                 keys=["image", "label"],
-                roi_size=[crop_size, crop_size, crop_size],
+                roi_size=crop_size,
                 random_size=False,
             ),
             RandGaussianNoised(keys=["image"], prob=0.33),
@@ -185,7 +192,7 @@ def get_train_transforms(crop_size):
                 rotate_range=(np.pi/4, np.pi/4, np.pi/4),
                 scale_range=(0.2, 0.2, 0.2),
                 shear_range=(0.2, 0.2, 0.2),
-                spatial_size=(crop_size, crop_size, crop_size),
+                spatial_size=crop_size,
                 padding_mode='zeros',
             ),
             ScaleIntensityd(keys="image"),
@@ -207,9 +214,35 @@ def get_val_transforms():
     return val_transforms
 
 
+
+def natural_sort_key(s):
+    """Sort strings containing numbers in natural order"""
+    return [int(text) if text.isdigit() else text.lower()
+            for text in re.split('([0-9]+)', s)]
+
+
+def find_and_sort_files(basedir, mode='train'):
+    # Load all training image and segmentation paths
+    img_dir = 'imagesTr' if mode == 'train' else 'imagesTs'
+    label_dir = 'labelsTr' if mode == 'train' else 'labelsTs'
+    images = sorted(
+        glob(
+            os.path.join(basedir, f'./{img_dir}/*.nii.gz'),
+        ),
+        key=natural_sort_key
+    )
+    segs = sorted(
+        glob(
+            os.path.join(basedir, f'./{label_dir}/*.nii.gz'),
+        ),
+        key=natural_sort_key
+    )
+    return images, segs
+
+
+
 # -----------------------------------------------------------------------------
 # Dataset handling
-
 def data_handler(
     basedir, finetuning_amount=3, iters_per_epoch=75, batch_size=3, seed=12345,
 ):
