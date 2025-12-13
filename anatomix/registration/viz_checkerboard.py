@@ -66,13 +66,15 @@ def viz_mid_slices_checkerboard(vol1, vol2, tile_size=32, do_min_max=True, filen
             slice2 = minmax(slice2)
 
         # Create checkerboard between slice1 (fixed) and slice3 (warped)
-        checkerboard_orig = create_checkerboard(slice1, slice2, tile_size=tile_size)
+        # checkerboard_orig = create_checkerboard(slice1, slice2, tile_size=tile_size)
 
         ax[i][0].imshow(slice1, cmap="gray")
         ax[i][0].set_title("Fixed" if i == 0 else "")
         ax[i][1].imshow(slice2, cmap="gray")
         ax[i][1].set_title("Moving" if i == 0 else "")
-        ax[i][2].imshow(checkerboard_orig, cmap="gray")
+        # ax[i][2].imshow(checkerboard_orig, cmap="gray")
+        ax[i][2].imshow(slice1, cmap="gray")
+        ax[i][2].imshow(slice2, alpha=0.5, cmap="hot")
         ax[i][2].set_title("Checkerboard-fixed-moving" if i == 0 else "")
 
         # Remove axes for cleaner visualization

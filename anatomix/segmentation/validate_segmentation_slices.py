@@ -37,8 +37,6 @@ from monai.transforms import (
 )
 
 from monai.metrics import DiceMetric
-from monai.transforms import AsDiscrete
-
 
 from plot_utils import viz_mid_slices, viz_mid_axial_slices_comparison, viz_mid_slices_by_dice
 

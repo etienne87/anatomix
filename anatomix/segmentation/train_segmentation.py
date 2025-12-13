@@ -22,7 +22,7 @@ from monai.transforms import Compose, Activations, AsDiscrete
 from monai.data import list_data_collate
 
 from monai.inferers import sliding_window_inference
-from anatomix.segmentation.plot_utils import viz_mid_slices
+from anatomix.segmentation.plot_utils import viz_mid_slices, viz_mid_axial_slices_comparison
 
 from tqdm import tqdm
 
@@ -32,16 +32,20 @@ from anatomix.segmentation.segmentation_utils import (
     worker_init_fn,
     get_train_transforms,
     get_val_transforms,
+    get_val_from_raw_transforms,
     data_handler,
 )
 
 from monai.transforms import (
     CutMix
 )
+from monai.metrics import DiceMetric
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 MAX_VAL_BATCHES = 14
+
+
 
 def main(opt):
     os.makedirs(
@@ -75,9 +79,7 @@ def main(opt):
     ]
     # define transforms for image and segmentation
     train_transforms = get_train_transforms(opt.crop_size)
-    val_transforms = get_val_transforms()
-    # load_transforms = get_preload_transforms(opt.crop_size)
-    # train_gpu_transforms = get_train_gpu_transforms(opt.crop_size, 'cuda')
+    val_transforms = get_val_from_raw_transforms()
 
     # create a training data loader
     # transform to Dataset if debug mode
@@ -121,28 +123,32 @@ def main(opt):
         softmax=True, to_onehot_y=True, batch=True, include_background=False,
     )
     # Track Dice loss for validation
-    valloss_function = monai.losses.DiceLoss(
-        softmax=True, to_onehot_y=True, include_background=False,
+    dice_metric = DiceMetric(
+        include_background=False,
+        reduction="none",  # or "none" for per-sample
+        get_not_nans=False,
+        num_classes=15  # ← Add this if it helps
     )
 
     # Create optimizer and scheduler
-    # optimizer = torch.optim.Adam(
-    #     new_model.parameters(), opt.lr, weight_decay=0
-    # )
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    #     optimizer, T_max=opt.n_epochs
-    # )
 
-    # try simple nnUNet method
-    optimizer = torch.optim.SGD(
-                new_model.parameters(),
-                lr=opt.lr,
-                momentum=0.99,
-                weight_decay=3e-5,
-                nesterov=True,
-            )
-    poly_lr = lambda epoch: (1 - epoch / opt.n_epochs) ** 0.9
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=poly_lr)
+    optimizer = torch.optim.Adam(
+        new_model.parameters(), opt.lr, weight_decay=0
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=opt.n_epochs
+    )
+
+    if opt.nnunet_optimizer:
+        optimizer = torch.optim.SGD(
+                    new_model.parameters(),
+                    lr=opt.lr,
+                    momentum=0.99,
+                    weight_decay=3e-5,
+                    nesterov=True,
+                )
+        poly_lr = lambda epoch: (1 - epoch / opt.n_epochs) ** 0.9
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=poly_lr)
 
 
     scaler = torch.GradScaler("cuda")
@@ -208,7 +214,7 @@ def main(opt):
                 val_images = None
                 val_labels = None
                 val_outputs = None
-                val_loss = 0.0
+                val_dice = 0
                 valstep = 0
 
                 for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
@@ -222,13 +228,22 @@ def main(opt):
                     )
 
                     # handle partial annots
-                    #annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,0])
-                    #subvol_val_labels = val_labels[:,:,annotated_slices]
-                    #subvol_val_outputs = val_outputs[:,:,annotated_slices]
+                    val_outputs = torch.nn.functional.interpolate(val_outputs, size=val_labels.shape[2:], mode='trilinear')
+                    val_images = torch.nn.functional.interpolate(val_images, size=val_labels.shape[2:], mode='trilinear')
+                    val_outputs_argmax = val_outputs.argmax(dim=1, keepdim=True)
 
-                    val_loss += valloss_function(val_outputs, val_labels)
 
-                    #val_loss += valloss_function(val_outputs, val_labels)
+                    annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,2])
+                    print('num slices: ', len(annotated_slices))
+                    subvol_val_labels = val_labels[...,annotated_slices]
+                    subvol_val_outputs = val_outputs_argmax[...,annotated_slices]
+                    dice_metric(y_pred=subvol_val_outputs, y=subvol_val_labels)
+                    dices = dice_metric.aggregate()[0].cpu().numpy().squeeze()
+                    dice_metric.reset()  # Reset for next sample
+                    case_dices = {label_name:dices[idx-1] for label_name, idx in labels_list.items()}
+
+                    val_dice += dices[~np.isnan(dices)].mean()
+
                     valstep += 1
                     if i > MAX_VAL_BATCHES:
                         break
@@ -236,23 +251,29 @@ def main(opt):
                     img = val_images[0, 0].cpu().numpy()
                     gt_mask = val_labels[0, 0].cpu().numpy()
                     if i == 0:
-                        viz_mid_slices(
-                            img, gt_mask, labels_list,
-                            writer=writer, tag="Val/ground_truth", global_step=epoch + 1
-                        )
+                        img = val_images[0,0].cpu().numpy()
+                        labels_pred = val_outputs_argmax.cpu().numpy().squeeze()
+                        labels_gt = val_labels.cpu().numpy().squeeze()
+                        if len(annotated_slices) < 5:
+                            viz_mid_axial_slices_comparison(img, labels_pred, labels_gt, labels_list, writer=writer, tag="Val/ground_truth", global_step=epoch + 1, axis=2, dices=case_dices)
+                        else:
+                            viz_mid_slices(
+                                img, gt_mask, labels_list,
+                                writer=writer, tag="Val/ground_truth", global_step=epoch + 1
+                            )
 
-                        # Visualize prediction
-                        pred_mask = val_outputs.argmax(dim=1)[0].cpu().numpy()
-                        viz_mid_slices(
-                            img, pred_mask, labels_list,
-                            writer=writer, tag="Val/prediction", global_step=epoch + 1
-                        )
+                            # Visualize prediction
+                            pred_mask = val_outputs.argmax(dim=1)[0].cpu().numpy()
+                            viz_mid_slices(
+                                img, pred_mask, labels_list,
+                                writer=writer, tag="Val/prediction", global_step=epoch + 1
+                            )
 
 
-                val_loss = val_loss / valstep
+                val_dice = val_dice / valstep
 
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
+                if val_dice < best_val_loss:
+                    best_val_loss = val_dice
                     best_loss_epoch = epoch + 1
                     if pth_best_val_loss != "":
                         os.remove(pth_best_val_loss)
@@ -267,12 +288,12 @@ def main(opt):
                 print(
                     "current epoch: {} current mean dice: {:.4f}"
                     " best mean dice: {:.4f} at epoch {}".format(
-                        epoch + 1, val_loss.item(),
+                        epoch + 1, val_dice,
                         best_val_loss.item(), best_loss_epoch,
                     )
                 )
                 writer.add_scalar(
-                    "val_loss_mean_dice_metric", 1-val_loss.item(), epoch + 1
+                    "val_loss_mean_dice_metric", val_dice, epoch + 1
                 )
 
 
@@ -293,112 +314,6 @@ def main(opt):
     writer.close()
 
 
-def val(opt):
-    import pandas as pd
-
-    _, __, vaimages, vasegs = data_handler(
-        opt.dataset, opt.train_amount, opt.n_iters_per_epoch, opt.batch_size,
-    )
-
-    val_files = [
-        {"image": img, "label": seg} for img, seg in zip(vaimages, vasegs)
-    ]
-
-    # define transforms for image and segmentation
-    val_transforms = get_val_transforms()
-
-    # create a validation data loader
-    val_ds = monai.data.Dataset(data=val_files, transform=val_transforms)
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=1,
-        num_workers=0,
-        collate_fn=list_data_collate,
-        worker_init_fn=worker_init_fn,
-        shuffle=True,
-    )
-
-    # Create UNet, DiceLoss and Adam optimizer
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-    new_model = load_model(
-        opt.pretrained_ckpt,
-        opt.n_classes,
-        device,
-        freeze_mode='none',
-    )
-
-    dir_save = f'finetuning_runs'
-
-    checkpoint_filepath = f'{dir_save}/checkpoints/{opt.exp_name}/best_dict_epoch0444.pth'
-    new_model.load_state_dict(torch.load(checkpoint_filepath, weights_only=True))
-    new_model.eval()
-
-
-    dataset_json = json.load(open(os.path.join(opt.dataset, 'dataset.json')))
-    labels_list = dataset_json['labels']
-
-    # fake one (we should put it inside the checkpoint perhaps)
-    # dataset_json = json.load(open(os.path.join('/home/eperot/nnUNet_raw/Dataset903_baselineCT_oneview_without_clahe/', 'dataset.json')))
-    # labels_list = dataset_json['labels']
-
-    valloss_function = monai.losses.DiceLoss(softmax=True, to_onehot_y=True, include_background=False, reduction="none")
-    demo_dir = f'{dir_save}/demo_outputs/{opt.exp_name}/'
-    os.makedirs(demo_dir, exist_ok=True)
-    all_dices = []
-    with torch.no_grad():
-        for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
-            val_images = val_data["image"].to(device)
-            val_labels = val_data["label"].to(device)
-            roi_size = (opt.crop_size, opt.crop_size, opt.crop_size)
-            sw_batch_size = 1
-            val_outputs = sliding_window_inference(
-                val_images, roi_size, sw_batch_size,
-                new_model, overlap=0.7,
-            )
-
-            # handle partial annots
-            annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,0])
-            subvol_val_labels = val_labels[:,:,annotated_slices]
-            subvol_val_outputs = val_outputs[:,:,annotated_slices]
-            dices = 1-valloss_function(subvol_val_outputs, subvol_val_labels).squeeze()
-
-            #dices = 1-valloss_function(val_outputs, val_labels).squeeze()
-            dices = dices.cpu().numpy()
-            case_dices = {'case': f'case_{i}'}
-            for label_name, idx in labels_list.items():
-                if idx == 0:
-                    continue
-                dice_value = dices[idx-1]
-                case_dices[label_name] = dice_value
-                print(f"{label_name}: Dice {dice_value:.4f}")
-
-            all_dices += [case_dices]
-
-            if opt.viz:
-                img = val_images[0,0].cpu().numpy()
-                labels = val_outputs.argmax(dim=1)[0].cpu().numpy()
-                viz_mid_slices(
-                    img,
-                    labels,
-                    labels_list,
-                    filename=f'{demo_dir}/demo_output_sample{i}_image_output.png')
-
-
-    df = pd.DataFrame(all_dices)
-    # Calculate average row
-    avg_row = {'case': 'average'}
-    for col in df.columns:
-        if col != 'case':
-            avg_row[col] = df[col].mean()
-    # Insert average as first row
-    df = pd.concat([pd.DataFrame([avg_row]), df], ignore_index=True)
-    # Save to CSV
-    csv_path = f'{demo_dir}/dice_scores.csv'
-    df.to_csv(csv_path, index=False, float_format='%.4f')
-    print(f"Saved dice scores to {csv_path}")
-
 
 
 if __name__ == "__main__":
@@ -413,7 +328,7 @@ if __name__ == "__main__":
         "An epoch is defined as n_iters_per_epoch training batches",
     )
     parser.add_argument(
-        '--n_iters_per_epoch', type=int, default=150,
+        '--n_iters_per_epoch', type=int, default=75,
         help="Number of training batches per epoch",
     )
     parser.add_argument(
@@ -455,29 +370,18 @@ if __name__ == "__main__":
         help="Prefix to attach to training logs in folder and file names",
     )
     parser.add_argument(
-        '--debug', action='store_true',
-        help="If set, use Dataset instead of CacheDataset for training."
-    )
-    parser.add_argument(
         '--amp_enabled', action='store_false',
         help="If set, use Mixed Precision."
     )
     parser.add_argument(
-        '--val', action='store_true',
-        help="If set, launch validation."
-    )
-    parser.add_argument(
-        '--viz', action='store_true',
-        help="If set, viz cases during validation."
-    )
-    parser.add_argument(
-        '--cutmix', action='store_false',
+        '--cutmix', action='store_true',
         help="If set, use cutmix regularizer."
+    )
+    parser.add_argument(
+        '--nnunet_optimizer', action='store_true',
+        help="If set, use nnunet's optimizer."
     )
 
     args = parser.parse_args()
 
-    if args.val:
-        val(args)
-    else:
-        main(args)
+    main(args)

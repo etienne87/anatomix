@@ -95,7 +95,7 @@ def viz_mid_axial_slices(vol, label, labels, filename=None, axis=0):
         vol_slice = np.take(vol, slices[j], axis=axis)
         pred_slice = np.take(label, slices[j], axis=axis)
         ax_viz_mid_slice(ax[j], vol_slice, pred_slice, labels)
-    add_legends(fig, labels, dices)
+    add_legends(fig, labels)
     plt.savefig(filename)
 
 
@@ -174,7 +174,7 @@ def viz_mid_slices(vol, mask, labels=None, filename=None, writer=None, tag="", g
 
 
 
-def viz_mid_axial_slices_comparison(vol, label_pred, label_gt, labels, filename=None, axis=0, dices=None):
+def viz_mid_axial_slices_comparison(vol, label_pred, label_gt, labels, filename=None, axis=0, dices=None, writer=None, tag="", global_step=0):
     """
     Visualize predicted and ground truth labels side by side for all axial slices containing labels.
 
@@ -214,6 +214,22 @@ def viz_mid_axial_slices_comparison(vol, label_pred, label_gt, labels, filename=
         plt.savefig(filename, dpi=150, bbox_inches='tight')
     else:
         plt.show()
+
+    if writer is not None:
+        # Convert figure to image array
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        image = Image.open(buf)
+        image_array = np.array(image)
+
+        # Convert to CHW format for TensorBoard (height, width, channels) -> (channels, height, width)
+        if len(image_array.shape) == 3:
+            image_array = np.transpose(image_array, (2, 0, 1))
+
+        # Add to TensorBoard
+        writer.add_image(tag, image_array, global_step)
+        buf.close()
 
     plt.close()
 

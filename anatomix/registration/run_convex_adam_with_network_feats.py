@@ -19,7 +19,7 @@ from anatomix.registration.instance_optimization import (
     merge_features,
 )
 
-from viz_checkerboard import viz_mid_slices_checkerboard
+# from viz_checkerboard import viz_mid_slices_checkerboard
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -32,7 +32,8 @@ from monai.transforms import (
     EnsureChannelFirst,
     EnsureType,
     Orientation,
-    ResizeWithPadOrCrop
+    ResizeWithPadOrCrop,
+    CenterSpatialCrop
 )
 
 
@@ -147,13 +148,16 @@ def convex_adam(
             LoadImage(),
             EnsureChannelFirst(),
             EnsureType(),
-            Orientation(axcodes='IPL'),
-            ResizeWithPadOrCrop(spatial_size=(w,h,d))
+            Orientation(axcodes='RAS'),
+            ResizeWithPadOrCrop(spatial_size=(150,150,150))
+            #CenterSpatialCrop(roi_size=(100,100,100))
         ]
     )
 
     fixedim = load_reorient_transforms_ras_central_crop(fixed_image)
     movingim =  load_reorient_transforms_ras_central_crop(moving_image)
+
+    print(fixedim.shape, movingim.shape)
 
     for i in range(3):
         imcat = np.concatenate(( fixedim.squeeze().numpy().max(axis=i),  movingim.squeeze().numpy().max(axis=i)), axis=-1)
@@ -325,7 +329,8 @@ def convex_adam(
 
 
     moved_np = moved.detach().cpu().squeeze().numpy()
-    viz_mid_slices_checkerboard(fixedim, moved_np, 32, do_min_max=True, filename="test.png")
+    viz_mid_slices_checkerboard(fixedim, movingim, 128, do_min_max=True, filename="before_reg.png")
+    viz_mid_slices_checkerboard(fixedim, moved_np, 128, do_min_max=True, filename="after_reg.png")
 
 
 

@@ -22,6 +22,7 @@ from monai.transforms import (
     EnsureTyped,
     EnsureChannelFirstd,
     RandRotate90d,
+    Spacingd,
     Orientationd
 )
 
@@ -236,6 +237,21 @@ def get_val_transforms():
     return val_transforms
 
 
+def get_val_from_raw_transforms():
+    crop_size = 256
+    val_transforms = Compose(
+        [
+            LoadImaged(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
+            EnsureTyped(keys=["image", "label"]),
+            Orientationd(keys=['image','label'], axcodes='RAS'),
+            Spacingd(keys=["image"], mode='bilinear', pixdim=[1.5, 1.5, 3]),
+            ScaleIntensityd(keys="image"),
+        ]
+    )
+    return val_transforms
+
+
 
 def natural_sort_key(s):
     """Sort strings containing numbers in natural order"""
@@ -297,20 +313,17 @@ def data_handler(
 
     trimages_mr, trsegs_mr = find_and_sort_files(basedir, 'train')
 
+
     # Add CT Dataset!
-    ct_amount = 200
     basedir2 ='/home/eperot/nnUNet_raw/Dataset907_baselineCT_oneview_without_clahe/'
     trimages_ct, trsegs_ct = find_and_sort_files(basedir2, 'train')
     trimages_ct = np.random.RandomState(seed=seed).permutation(trimages_ct).tolist()
     trsegs_ct = np.random.RandomState(seed=seed).permutation(trsegs_ct).tolist()
-    vaimages_ct = trimages_ct[ct_amount:]
-    vasegs_ct = trsegs_ct[ct_amount:]
-    trimages_ct = trimages_ct[:ct_amount]
-    trsegs_ct = trsegs_ct[:ct_amount]
-
-
-    trimages = trimages_mr * 5 + trimages_ct
-    trsegs = trsegs_mr * 5 + trsegs_ct
+    trimages_ct = trimages_ct
+    trsegs_ct = trsegs_ct
+    trimages = trimages_mr + trimages_ct
+    trsegs = trsegs_mr + trsegs_ct
+    trimages, trsegs = trimages_mr, trsegs_mr
 
     # Verify we have matching pairs of images and segmentations
     assert len(trimages) > 0
@@ -321,32 +334,18 @@ def data_handler(
     trsegs = np.random.RandomState(seed=seed).permutation(trsegs).tolist()
 
 
-    # Select val from the rest
-
-    # Select train from the beginning
-    vaimages = trimages_mr + vaimages_ct
-    vasegs = trsegs_mr + vasegs_ct
 
 
     # I don't have any validation data for now, so commenting this out
     # Calculate repeats needed to achieve desired iterations per epoch
     samples_per_epoch = iters_per_epoch * batch_size
     repeats = max(1, samples_per_epoch // finetuning_amount)
-
-    # Repeat training data to match desired samples per epoch
+    # # Repeat training data to match desired samples per epoch
     trimages = trimages * repeats
     trsegs = trsegs * repeats
 
-    # # Load validation data paths
-    # vaimages = sorted(
-    #     glob(
-    #         os.path.join(basedir, './imagesVal/*.nii.gz'),
-    #     )
-    # )
-    # vasegs = sorted(
-    #     glob(
-    #         os.path.join(basedir, './labelsVal/*.nii.gz'),
-    #     )
-    # )
+    vabasedir ='/home/eperot/nnUNet_raw/baseline_mr_val/'
+    vaimages, vasegs = find_and_sort_files(vabasedir, 'test')
+
 
     return trimages, trsegs, vaimages, vasegs
