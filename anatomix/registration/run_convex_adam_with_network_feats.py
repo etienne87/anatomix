@@ -7,6 +7,7 @@ import nibabel as nib
 import os
 import random
 from sklearn.metrics import f1_score
+import matplotlib.pyplot as plts
 
 from anatomix.registration.convex_adam_utils import (
     extract_features,
@@ -18,8 +19,22 @@ from anatomix.registration.instance_optimization import (
     merge_features,
 )
 
+from viz_checkerboard import viz_mid_slices_checkerboard
+
 import warnings
 warnings.filterwarnings("ignore")
+
+import matplotlib.pyplot as plt
+
+from monai.transforms import (
+    Compose,
+    LoadImage,
+    EnsureChannelFirst,
+    EnsureType,
+    Orientation,
+    ResizeWithPadOrCrop
+)
+
 
 
 # coupled convex optimisation with adam instance optimisation
@@ -106,26 +121,51 @@ def convex_adam(
     -------
     None
         The function saves the output files, including warped images,
-        displacement fields, and optionally warped label maps, to the 
+        displacement fields, and optionally warped label maps, to the
         specified result directory.
     """
-    
+
     # load model:
     print('Loading model')
     if not os.path.isfile(ckpt_path):
         raise FileNotFoundError(f"Checkpoint file not found: {ckpt_path}")
-    
+
     model = load_model(ckpt_path)
-    
+
     # load images:
     affine_mtx = nib.load(fixed_image).affine
     fixedim = nib.load(fixed_image).get_fdata()
     movingim = nib.load(moving_image).get_fdata()
-    
+
+    print(fixedim.shape)
+    print(movingim.shape)
+
+    d,h,w = np.maximum(fixedim.shape, movingim.shape)
+
+    load_reorient_transforms_ras_central_crop = Compose(
+        [
+            LoadImage(),
+            EnsureChannelFirst(),
+            EnsureType(),
+            Orientation(axcodes='IPL'),
+            ResizeWithPadOrCrop(spatial_size=(w,h,d))
+        ]
+    )
+
+    fixedim = load_reorient_transforms_ras_central_crop(fixed_image)
+    movingim =  load_reorient_transforms_ras_central_crop(moving_image)
+
+    for i in range(3):
+        imcat = np.concatenate(( fixedim.squeeze().numpy().max(axis=i),  movingim.squeeze().numpy().max(axis=i)), axis=-1)
+        plt.imsave(f'test{i}.png', imcat, cmap='gray')
+
+    fixedim = fixedim.squeeze().numpy()
+    movingim = movingim.squeeze().numpy()
+
     fixed_ch0 = torch.from_numpy(
         fixedim[np.newaxis, np.newaxis, ...],
     ).float().cuda()
-    
+
     moving_ch0 = torch.from_numpy(
         movingim[np.newaxis, np.newaxis, ...],
     ).float().cuda()
@@ -183,7 +223,7 @@ def convex_adam(
     torch.cuda.synchronize()
     t0 = time.time()
 
-    with torch.no_grad():      
+    with torch.no_grad():
         features_fix, features_mov = pred_fixed, pred_moving
         features_fix_smooth = F.avg_pool3d(
             features_fix, grid_sp, stride=grid_sp,
@@ -217,7 +257,7 @@ def convex_adam(
             selected_smooth,
             lr=1,
         )
-        
+
     # Timing tracking:
     torch.cuda.synchronize()
     print('case time: ', time.time() - t0)
@@ -225,40 +265,40 @@ def convex_adam(
     # Warp the image with the estimated displacement:
     grid1 = F.affine_grid(
         torch.eye(3, 4).unsqueeze(0).cuda(),
-        (1, 1, H, W, D), 
+        (1, 1, H, W, D),
         align_corners=False
     )
     disp0 = disp_hr.cuda().float().permute(0, 2, 3, 4, 1)
     denom = torch.tensor([H - 1, W - 1, D - 1]).cuda().view(1, 1, 1, 1, 3)
     disp0 = disp0 / denom * 2
     disp0 = disp0.flip(4)
-    
+
     moved = F.grid_sample(
         torch.from_numpy(movingim[None, None, ...]).float().cuda(),
         (grid1 + disp0).float(),
         align_corners=False,
         mode='bilinear',
     )
-    
+
     if warp_seg:
         # Load segmentations:
         fixseg = nib.load(fixed_seg).get_fdata()
         movseg = nib.load(moving_seg).get_fdata()
-        
+
         # Warp moving segmentation to fixed space:
         moved_seg = F.grid_sample(
-            torch.from_numpy(movseg[None, None, ...]).float().cuda(), 
-            (grid1 + disp0).float(), 
-            align_corners=False, 
+            torch.from_numpy(movseg[None, None, ...]).float().cuda(),
+            (grid1 + disp0).float(),
+            align_corners=False,
             mode='nearest',
         )
-        
+
         # Save the warped label map:
         nib.save(
             nib.Nifti1Image(
-                moved_seg.squeeze().cpu().numpy(), 
+                moved_seg.squeeze().cpu().numpy(),
                 affine_mtx,
-            ), 
+            ),
             os.path.join(
                 result_path,
                 'labels_moved_{}_g{}_hw{}_l{}_ga{}_ic{}_{}.nii.gz'.format(
@@ -267,7 +307,7 @@ def convex_adam(
                 )
             )
         )
-        
+
         # Compute and report Dice:
         # TODO: should write this to a file when this script gets updated
         # to also have batch mode
@@ -281,7 +321,14 @@ def convex_adam(
                 )
             )
         )
-    
+
+
+
+    moved_np = moved.detach().cpu().squeeze().numpy()
+    viz_mid_slices_checkerboard(fixedim, moved_np, 32, do_min_max=True, filename="test.png")
+
+
+
     # Save output displacements:
     nib.save(
         nib.Nifti1Image(
@@ -318,7 +365,7 @@ def convex_adam(
 if __name__=="__main__":
     parser = argparse.ArgumentParser(
         description="Run ConvexAdam optimization with proposed network feats."
-    )  
+    )
     parser.add_argument(
         "--fixed", type=str, required=True,
         help="Path to the fixed image *.nii.gz file (required)."
@@ -328,11 +375,11 @@ if __name__=="__main__":
         help="Path to the moving image *.nii.gz file (required)."
     )
     parser.add_argument(
-        "--exp_name", type=str, required=True,
+        "--exp_name", type=str, default='demo',
         help="Experiment name for logging and output purposes (required)."
     )
     parser.add_argument(
-        "--ckpt_path", type=str, required=True,
+        "--ckpt_path", type=str, default='/home/eperot/oneview_mr/anatomix/model-weights/anatomix.pth',
         help="Path to the checkpoint for loading the model (required)."
     )
     parser.add_argument(
@@ -382,7 +429,7 @@ if __name__=="__main__":
         '--path_mask_moving', type=str, default=None,
         help="If using masks, provide a *.nii.gz file for the moving img.",
     )
-    
+
     parser.add_argument(
         '--fixed_minclip', type=float, default=None,
         help="If clipping, clip minimum intensity of fixed img to this val.",
@@ -413,7 +460,7 @@ if __name__=="__main__":
         help="If warping labels, provide a *.nii.gz file for the moving label",
     )
 
-    
+
     args = parser.parse_args()
 
     convex_adam(
