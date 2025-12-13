@@ -175,8 +175,9 @@ def main(opt):
             labels = batch_data["label"].to(device)
 
             # i had to fix it inside monai 1.5.1!!!
-            # cm = CutMix(len(batch_data["image"]), alpha=0.5)
-            # inputs, labels = cm(inputs, labels)
+            if opt.cutmix:
+                cm = CutMix(len(batch_data["image"]), alpha=0.5)
+                inputs, labels = cm(inputs, labels)
 
             optimizer.zero_grad()
 
@@ -214,17 +215,18 @@ def main(opt):
                     val_images = val_data["image"].to(device)
                     val_labels = val_data["label"].to(device)
                     roi_size = opt.crop_size
-                    sw_batch_size = 4
+                    sw_batch_size = 1
                     val_outputs = sliding_window_inference(
                         val_images, roi_size, sw_batch_size,
                         new_model, overlap=0.7,
                     )
 
                     # handle partial annots
-                    annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,0])
-                    subvol_val_labels = val_labels[:,:,annotated_slices]
-                    subvol_val_outputs = val_outputs[:,:,annotated_slices]
-                    val_loss += valloss_function(subvol_val_outputs, subvol_val_labels)
+                    #annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,0])
+                    #subvol_val_labels = val_labels[:,:,annotated_slices]
+                    #subvol_val_outputs = val_outputs[:,:,annotated_slices]
+
+                    val_loss += valloss_function(val_outputs, val_labels)
 
                     #val_loss += valloss_function(val_outputs, val_labels)
                     valstep += 1
@@ -350,7 +352,7 @@ def val(opt):
             val_images = val_data["image"].to(device)
             val_labels = val_data["label"].to(device)
             roi_size = (opt.crop_size, opt.crop_size, opt.crop_size)
-            sw_batch_size = 4
+            sw_batch_size = 1
             val_outputs = sliding_window_inference(
                 val_images, roi_size, sw_batch_size,
                 new_model, overlap=0.7,
@@ -406,12 +408,12 @@ if __name__ == "__main__":
         help="Directory where image and label *.nii.gz files are stored.",
     )
     parser.add_argument(
-        '--n_epochs', type=int, default=500,
+        '--n_epochs', type=int, default=1000,
         help="Number of epochs. "
         "An epoch is defined as n_iters_per_epoch training batches",
     )
     parser.add_argument(
-        '--n_iters_per_epoch', type=int, default=75,
+        '--n_iters_per_epoch', type=int, default=150,
         help="Number of training batches per epoch",
     )
     parser.add_argument(
@@ -419,7 +421,7 @@ if __name__ == "__main__":
         help="Number of classes to segment. Does not include background class",
     )
     parser.add_argument(
-        '--val_interval', type=int, default=2,
+        '--val_interval', type=int, default=50,
         help="Do a valid. and checkpointing loop every val_interval epochs",
     )
     parser.add_argument(
@@ -467,6 +469,10 @@ if __name__ == "__main__":
     parser.add_argument(
         '--viz', action='store_true',
         help="If set, viz cases during validation."
+    )
+    parser.add_argument(
+        '--cutmix', action='store_false',
+        help="If set, use cutmix regularizer."
     )
 
     args = parser.parse_args()

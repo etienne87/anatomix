@@ -295,24 +295,23 @@ def data_handler(
                              validation images, validation segmentations)
     """
 
-    def natural_sort_key(s):
-        """Sort strings containing numbers in natural order"""
-        return [int(text) if text.isdigit() else text.lower()
-                for text in re.split('([0-9]+)', s)]
+    trimages_mr, trsegs_mr = find_and_sort_files(basedir, 'train')
 
-    # Load all training image and segmentation paths
-    trimages = sorted(
-        glob(
-            os.path.join(basedir, './imagesTr/*.nii.gz'),
-        ),
-        key=natural_sort_key
-    )
-    trsegs = sorted(
-        glob(
-            os.path.join(basedir, './labelsTr/*.nii.gz'),
-        ),
-        key=natural_sort_key
-    )
+    # Add CT Dataset!
+    ct_amount = 200
+    basedir2 ='/home/eperot/nnUNet_raw/Dataset907_baselineCT_oneview_without_clahe/'
+    trimages_ct, trsegs_ct = find_and_sort_files(basedir2, 'train')
+    trimages_ct = np.random.RandomState(seed=seed).permutation(trimages_ct).tolist()
+    trsegs_ct = np.random.RandomState(seed=seed).permutation(trsegs_ct).tolist()
+    vaimages_ct = trimages_ct[ct_amount:]
+    vasegs_ct = trsegs_ct[ct_amount:]
+    trimages_ct = trimages_ct[:ct_amount]
+    trsegs_ct = trsegs_ct[:ct_amount]
+
+
+    trimages = trimages_mr * 5 + trimages_ct
+    trsegs = trsegs_mr * 5 + trsegs_ct
+
     # Verify we have matching pairs of images and segmentations
     assert len(trimages) > 0
     assert len(trimages) == len(trsegs)
@@ -322,23 +321,11 @@ def data_handler(
     trsegs = np.random.RandomState(seed=seed).permutation(trsegs).tolist()
 
 
-    # dumb check for file mismatches
-    # import tqdm
-    # for img, lab in tqdm.tqdm(zip(trimages, trsegs), total=len(trimages)):
-    #     basename1 = os.path.basename(img).split('_0000.nii.gz')[0]
-    #     basename2 = os.path.basename(lab).split('.nii.gz')[0]
-    #     if basename1 != basename2:
-    #         print(f"Mismatch: {basename1} vs {basename2}")
-    #         continue
-
     # Select val from the rest
 
     # Select train from the beginning
-    trimages = trimages
-    trsegs = trsegs
-
-    vaimages = trimages
-    vasegs = trsegs
+    vaimages = trimages_mr + vaimages_ct
+    vasegs = trsegs_mr + vasegs_ct
 
 
     # I don't have any validation data for now, so commenting this out
