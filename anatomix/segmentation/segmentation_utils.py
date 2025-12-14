@@ -262,8 +262,12 @@ def natural_sort_key(s):
 
 def find_and_sort_files(basedir, mode='train'):
     # Load all training image and segmentation paths
-    img_dir = 'imagesTr' if mode == 'train' else 'imagesTs'
-    label_dir = 'labelsTr' if mode == 'train' else 'labelsTs'
+    if mode == 'train':
+        img_dir, label_dir = 'imagesTr', 'labelsTr'
+    elif mode == 'val':
+        img_dir, label_dir = 'imagesVa', 'labelsVa'
+    else:
+        img_dir, label_dir = 'imagesTs', 'labelsTs'
     images = sorted(
         glob(
             os.path.join(basedir, f'./{img_dir}/*.nii.gz'),
@@ -280,9 +284,67 @@ def find_and_sort_files(basedir, mode='train'):
 
 
 
+
+def data_handler(
+    basedir, finetuning_amount=3, iters_per_epoch=75, batch_size=3, seed=12345,
+):
+    """
+    Handle data loading and preparation for few-shot segmentation training.
+
+    This function loads training and validation image/segmentation pairs from the
+    specified directory structure, randomly selects a subset for few-shot training,
+    and repeats the training data as needed to match the desired iterations per epoch.
+
+    Parameters
+    ----------
+    basedir : str
+        Base directory containing imagesTr, labelsTr, imagesVal, and labelsVal folders
+    finetuning_amount : int, optional
+        Number of training image pairs to use for few-shot learning. Default is 3
+    iters_per_epoch : int, optional
+        Number of training iterations per epoch. Default is 75
+    batch_size : int, optional
+        Batch size for training. Default is 3
+    seed : int, optional
+        Random seed for reproducible data selection. Default is 12345
+
+    Returns
+    -------
+    tuple
+        Lists of file paths: (training images, training segmentations,
+                             validation images, validation segmentations)
+    """
+
+    trimages, trsegs = find_and_sort_files(basedir, 'train')
+    vaimages, vasegs = find_and_sort_files(basedir, 'test')
+
+
+    # Verify we have matching pairs of images and segmentations
+    assert len(trimages) > 0
+    assert len(trimages) == len(trsegs)
+
+    # Randomly select subset of training data for few-shot learning
+    trimages = np.random.RandomState(seed=seed).permutation(trimages).tolist()
+    trsegs = np.random.RandomState(seed=seed).permutation(trsegs).tolist()
+
+
+    # I don't have any validation data for now, so commenting this out
+    # Calculate repeats needed to achieve desired iterations per epoch
+    samples_per_epoch = iters_per_epoch * batch_size
+    repeats = max(1, samples_per_epoch // finetuning_amount)
+
+    # Repeat training data to match desired samples per epoch
+    trimages = trimages * repeats
+    trsegs = trsegs * repeats
+
+
+    return trimages, trsegs, vaimages, vasegs
+
+
+
 # -----------------------------------------------------------------------------
 # Dataset handling
-def data_handler(
+def data_handler_joint(
     basedir, finetuning_amount=3, iters_per_epoch=75, batch_size=3, seed=12345,
 ):
     """

@@ -43,6 +43,13 @@ def preproc(dataset, out_dir, res=[3,1.5,1.5], mode='test'):
     #     print(img.header.get_zooms())
     #     breakpoint()
 
+    if mode == 'train':
+        img_dir, label_dir = 'imagesTr', 'labelsTr'
+    elif mode == 'val':
+        img_dir, label_dir = 'imagesVa', 'labelsVa'
+    else:
+        img_dir, label_dir = 'imagesTs', 'labelsTs'
+
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(images, segs)
     ]
@@ -68,14 +75,14 @@ def preproc(dataset, out_dir, res=[3,1.5,1.5], mode='test'):
         [
             SaveImaged(
                 keys=["image"],
-                output_dir=os.path.join(out_dir, 'imagesTs'),
+                output_dir=os.path.join(out_dir, img_dir),
                 output_postfix="",
                 resample=False,
                 separate_folder=False,
             ),
             SaveImaged(
                 keys=["label"],
-                output_dir=os.path.join(out_dir, 'labelsTs'),
+                output_dir=os.path.join(out_dir, label_dir),
                 output_postfix="",
                 resample=False,
                 separate_folder=False,
