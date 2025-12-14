@@ -107,17 +107,12 @@ def tta_sliding_window_inference(inputs, roi_size, sw_batch_size, model, overlap
 
 def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_name='baseline_mr_v2', viz=False, mode='test'):
     images, segs = find_and_sort_files(dataset, mode)
-
     val_files = [
         {"image": img, "label": seg} for img, seg in zip(images, segs)
     ]
 
-    # this code confirms that baseline_mr_val is NOT preproc
-    # import nibabel as nib
-    # for img in images:
-    #     img = nib.load(img)
-    #     print(img.header.get_zooms())
-    #     breakpoint()
+    dataset_json = json.load(open(os.path.join(dataset, 'dataset.json')))
+    labels_list = dataset_json['labels']
 
     val_transforms = Compose(
         [
@@ -140,7 +135,7 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
 
     # to_one_hot = AsDiscrete(to_onehot=len(labels_list))
 
-    roi_size = (160,160,80)
+    roi_size = (160,160,64)
     device = 'cuda:0'
 
     val_ds = monai.data.Dataset(data=val_files, transform=val_transforms)
@@ -157,9 +152,10 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
     print(checkpoint_filepath)
     new_model = load_model(
         "scratch",
-        14,
+        len(labels_list),
         device,
-        freeze_mode='none'
+        freeze_mode='none',
+        num_downs=5
     )
     new_model.load_state_dict(torch.load(checkpoint_filepath, weights_only=True))
     new_model.eval()
@@ -168,10 +164,8 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
         include_background=False,
         reduction="none",  # or "none" for per-sample
         get_not_nans=False,
-        num_classes=15  # ← Add this if it helps
+        num_classes=len(labels_list)  # ← Add this if it helps
     )
-    dataset_json = json.load(open(os.path.join(dataset, 'dataset.json')))
-    labels_list = dataset_json['labels']
 
     demo_dir = f'finetuning_runs/demo_outputs/{exp_name}/'
     os.makedirs(demo_dir, exist_ok=True)
@@ -180,25 +174,33 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
 
     import matplotlib.pyplot as plt
 
+    val_dice = 0
+    valstep = 0
+
     with torch.no_grad():
         for i, val_data in enumerate(tqdm(val_loader, total=len(val_loader))):
             val_images = val_data["image"].to(device)
             val_labels = val_data["label"].to(device)
 
-            sw_batch_size = 4
+            valstep += 1
+            sw_batch_size = 1
+            val_outputs = sliding_window_inference(
+                val_images, roi_size, sw_batch_size,
+                new_model, overlap=0.7,
+            )
+            # tta is worse??
             # val_outputs = tta_sliding_window_inference(
             #     val_images, roi_size, sw_batch_size,
             #     new_model, overlap=0.7,
             # )
-
-            val_outputs = tta_no_sliding_window_inference(val_images, new_model)
+            # val_outputs = tta_no_sliding_window_inference(val_images, new_model)
 
             # Put Back prediction and image back to original pixdim
             val_outputs = torch.nn.functional.interpolate(val_outputs, size=val_labels.shape[2:], mode='trilinear')
             val_images = torch.nn.functional.interpolate(val_images, size=val_labels.shape[2:], mode='trilinear')
 
             val_outputs_argmax = val_outputs.argmax(dim=1, keepdim=True)
-            val_outputs_argmax = keep_largest(val_outputs_argmax)
+            # val_outputs_argmax = keep_largest(val_outputs_argmax) # this is hurting???
 
             # select only correct slices
             annotated_slices = torch.unique(torch.nonzero(val_labels.squeeze())[:,2])
@@ -212,15 +214,11 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
             dice_metric.reset()  # Reset for next sample
 
 
-            case_dices = {'case': f'case_{i}'}
-            for label_name, idx in labels_list.items():
-                if idx == 0:
-                    continue
-                dice_value = dices[idx-1]
-                if np.isnan(dice_value):
-                    dice_value = 1.0
-                case_dices[label_name] = dice_value
-                print(f"{label_name}: Dice {dice_value:.4f}")
+            case_dices = {label_name:dices[idx-1] for label_name, idx in labels_list.items()}
+            print(case_dices)
+
+            val_dice += dices[~np.isnan(dices)].mean()
+
             all_dices += [case_dices]
 
             if viz:
@@ -237,16 +235,16 @@ def validate_on_slices(dataset="/home/eperot/nnUNet_raw/baseline_mr_val/", exp_n
                         labels_list,
                         filename=f'{demo_dir}/demo_output_sample{i}_image_output.png')
 
+    val_dice = val_dice / valstep
+    print("Final Average: ", val_dice)
+
     df = pd.DataFrame(all_dices)
     # Calculate average row
     avg_row = {'case': 'average'}
-    avg_avg = 0
     for col in df.columns:
         if col != 'case':
             avg_row[col] = df[col].mean()
-            avg_avg += df[col].mean() / len(df.columns)
 
-    print("Final Average: ", avg_avg)
     # Insert average as first row
     df = pd.concat([pd.DataFrame([avg_row]), df], ignore_index=True)
     # Save to CSV

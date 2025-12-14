@@ -11,6 +11,7 @@ import logging
 import json
 import os
 import sys
+import glob
 import argparse
 import numpy as np
 import torch
@@ -118,6 +119,21 @@ def main(opt):
         freeze_mode="none",
     )
 
+
+    if opt.resume_from:
+        print(f"Resuming from {opt.resume_from}")
+        checkpoint_filepath = glob.glob(f'finetuning_runs/checkpoints/{opt.resume_from}/best_dict*.pth')[-1]
+        checkpoint = torch.load(checkpoint_filepath, weights_only=True)
+
+        # Load model weights
+        new_model.load_state_dict(checkpoint["state_dict"])
+
+        # DON'T load optimizer/scheduler if LR was 0
+        # Just start fresh with new LR
+        print(f"Loaded model weights from experience {opt.resume_from}, starting with fresh optimizer at LR={opt.learning_rate}")
+
+    breakpoint()
+
     # Create Dice + CE loss function
     loss_function = monai.losses.DiceCELoss(
         softmax=True, to_onehot_y=True, batch=True, include_background=False,
@@ -127,7 +143,7 @@ def main(opt):
         include_background=False,
         reduction="none",  # or "none" for per-sample
         get_not_nans=False,
-        num_classes=15  # ← Add this if it helps
+        num_classes=len(labels_list)  # ← Add this if it helps
     )
 
     # Create optimizer and scheduler
@@ -380,6 +396,10 @@ if __name__ == "__main__":
     parser.add_argument(
         '--nnunet_optimizer', action='store_true',
         help="If set, use nnunet's optimizer."
+    )
+    parser.add_argument(
+        '--resume_from', type=str, default="witness",
+        help="If set, use resume from another experience name."
     )
 
     args = parser.parse_args()

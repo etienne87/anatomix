@@ -22,6 +22,7 @@ from monai.transforms import (
     EnsureTyped,
     EnsureChannelFirstd,
     RandRotate90d,
+    Rand3DElasticd,
     Spacingd,
     Orientationd
 )
@@ -33,7 +34,7 @@ from anatomix.model.network import Unet
 # Loading pretrained model
 
 
-def load_model(pretrained_ckpt, n_classes, device, freeze_mode):
+def load_model(pretrained_ckpt, n_classes, device, freeze_mode, num_downs=4):
     """
     Load and configure a U-Net model for semantic segmentation.
 
@@ -55,7 +56,7 @@ def load_model(pretrained_ckpt, n_classes, device, freeze_mode):
         Configured model with pretrained weights (if specified) and output layer
     """
     # Initialize base U-Net model
-    model = Unet(3, 1, 16, 5, ngf=16).to(device)
+    model = Unet(3, 1, 16, num_downs, ngf=16).to(device)
 
     if pretrained_ckpt == 'scratch':
         print("Training from random initialization.")
@@ -188,11 +189,11 @@ def get_train_transforms(crop_size: tuple=(128,128,128)):
                 random_size=False,
             ),
             RandAxisFlipd(["image", "label"], prob=0.15, lazy=True),
-            # RandRotate90d(
-            #     keys=["image", "label"],
-            #     prob=0.10,
-            #     max_k=3,
-            # ),
+            RandRotate90d(
+                keys=["image", "label"],
+                prob=0.10,
+                max_k=3,
+            ),
             RandGaussianNoised(keys=["image"], prob=0.33),
             RandBiasFieldd(
                 keys=["image"], prob=0.33, coeff_range=(0.0, 0.05)
@@ -217,7 +218,7 @@ def get_train_transforms(crop_size: tuple=(128,128,128)):
                 spatial_size=crop_size,
                 padding_mode='zeros',
             ),
-            #Rand3DElasticd(keys=["image", "label"], sigma_range=(5, 7),magnitude_range=(50, 150),  mode=("bilinear", "nearest"), prob=0.5),
+            Rand3DElasticd(keys=["image", "label"], sigma_range=(5, 7),magnitude_range=(50, 150),  mode=("bilinear", "nearest"), prob=0.5),
             ScaleIntensityd(keys="image"),
         ]
     )
